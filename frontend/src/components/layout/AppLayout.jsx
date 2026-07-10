@@ -30,6 +30,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import AssessmentIcon from '@mui/icons-material/Assessment';
 
 const DRAWER_WIDTH = 260;
 
@@ -61,6 +62,7 @@ const AppLayout = ({ children }) => {
     { text: 'Attendance', icon: <CheckCircleIcon />, path: '/attendance' },
     { text: 'Timetable', icon: <CalendarTodayIcon />, path: '/timetable' },
     { text: 'History', icon: <BarChartIcon />, path: '/history' },
+    { text: 'Reports', icon: <AssessmentIcon />, path: '/reports' },
     { text: 'AI Assistant', icon: <AutoAwesomeIcon />, path: '#' },
     { text: 'Settings', icon: <SettingsIcon />, path: '#' },
   ];
@@ -174,11 +176,13 @@ const AppLayout = ({ children }) => {
                     ? 'Timetable Management' 
                     : location.pathname === '/history' 
                       ? 'Attendance History' 
-                      : location.pathname === '/profile' 
-                        ? 'User Profile' 
-                        : location.pathname.startsWith('/subjects/') 
-                          ? 'Subject Details' 
-                          : 'Smartttend'}
+                      : location.pathname === '/reports'
+                        ? 'Attendance Reports'
+                        : location.pathname === '/profile' 
+                          ? 'User Profile' 
+                          : location.pathname.startsWith('/subjects/') 
+                            ? 'Subject Details' 
+                            : 'Smartttend'}
             </Typography>
           </Box>
           <Box display="flex" alignItems="center" gap={1.5}>

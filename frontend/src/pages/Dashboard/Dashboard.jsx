@@ -19,64 +19,91 @@ import {
   Button,
   CircularProgress,
   Chip,
-  CardActionArea
+  CardActionArea,
+  Slider,
+  Skeleton
 } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
-import SubjectIcon from '@mui/icons-material/Subject';
-import StarBorderIcon from '@mui/icons-material/StarBorder';
 import SchoolIcon from '@mui/icons-material/School';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import StarIcon from '@mui/icons-material/Star';
+import ShowChartIcon from '@mui/icons-material/ShowChart';
+
+// Recharts imports
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  Radar,
+  Legend
+} from 'recharts';
 
 const Dashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [summary, setSummary] = useState(null);
+  const [analytics, setAnalytics] = useState(null);
   const [todayLectures, setTodayLectures] = useState([]);
-  const [recentActivities, setRecentActivities] = useState([]);
+  const [aiInsights, setAiInsights] = useState('');
+  const [aiLoading, setAiLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [tickerTime, setTickerTime] = useState(new Date());
 
+  // Slider simulator states
+  const [missCount, setMissCount] = useState(0);
+  const [attendCount, setAttendCount] = useState(0);
+
   const fetchDashboardData = async () => {
+    setLoading(true);
     try {
-      const summaryRes = await api.get('/attendance/records/summary/');
-      setSummary(summaryRes.data);
+      const analyticRes = await api.get('/analytics/dashboard/');
+      setAnalytics(analyticRes.data);
 
       const todayRes = await api.get('/timetable/slots/today/');
       setTodayLectures(todayRes.data.lectures);
-
-      const recentRes = await api.get('/attendance/records/', { params: { limit: 5 } });
-      setRecentActivities(recentRes.data);
     } catch (err) {
-      console.error('Failed to load dashboard data:', err);
+      console.error('Failed to load analytics dashboard data:', err);
     } finally {
       setLoading(false);
     }
   };
 
+  const fetchAIInsights = async () => {
+    setAiLoading(true);
+    try {
+      const aiRes = await api.get('/ai/insights/');
+      setAiInsights(aiRes.data.insights);
+    } catch (err) {
+      console.error('Failed to load AI insights:', err);
+      setAiInsights('Failed to generate insights. Please try again later.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchDashboardData();
+    fetchAIInsights();
 
-    // Setup periodic timer to refresh countdowns every 15 seconds
     const interval = setInterval(() => {
       setTickerTime(new Date());
-    }, 15000);
+    }, 20000);
 
     return () => clearInterval(interval);
   }, []);
-
-  if (loading) {
-    return (
-      <AppLayout>
-        <Box display="flex" justifyContent="center" py={12}>
-          <CircularProgress />
-        </Box>
-      </AppLayout>
-    );
-  }
 
   // Parse slot times into Date objects for comparison
   const parseSlotTime = (timeStr) => {
@@ -98,7 +125,6 @@ const Dashboard = () => {
   } else if (todayLectures.length === 0) {
     scheduleStateMsg = 'You have no lectures scheduled for today.';
   } else {
-    // Sort lectures by start time to process chronologically
     const sorted = [...todayLectures].sort((a, b) => a.start_time.localeCompare(b.start_time));
     
     for (const lecture of sorted) {
@@ -115,7 +141,6 @@ const Dashboard = () => {
     if (!activeLecture && !nextLecture) {
       scheduleStateMsg = 'All scheduled lectures are completed for today!';
     } else if (!activeLecture) {
-      // Check if currently in lunch break range (12:30 PM to 1:30 PM)
       const hour = tickerTime.getHours();
       const min = tickerTime.getMinutes();
       const currMin = hour * 60 + min;
@@ -150,8 +175,74 @@ const Dashboard = () => {
     return `${displayHr}:${minutes} ${ampm}`;
   };
 
-  const overall = summary?.overall_percentage ?? 100.0;
-  const goal = summary?.attendance_goal ?? 75;
+  // Simulation calculations
+  const actualLectures = analytics?.total_lectures || 0;
+  const actualAttended = (analytics?.present_count || 0) + (analytics?.late_count || 0);
+  
+  const simulatedTotal = actualLectures + missCount + attendCount;
+  const simulatedAttended = actualAttended + attendCount;
+  const simulatedPct = simulatedTotal > 0 
+    ? Math.round((simulatedAttended / simulatedTotal) * 100 * 10) / 10 
+    : 100.0;
+
+  const goal = 75; // cut off
+
+  // Map calendar heatmap dates
+  const renderHeatmap = () => {
+    const today = new Date();
+    const cells = [];
+    const daysToShow = 28; // Last 4 weeks
+    
+    for (let i = daysToShow - 1; i >= 0; i--) {
+      const checkDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+      const checkDateStr = checkDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
+      
+      // Find matches in heatmap database
+      const match = analytics?.calendar_heatmap?.find(c => c.date === checkDateStr);
+      let color = 'rgba(0,0,0,0.06)'; // default gray
+      let title = `${checkDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}: No Class`;
+
+      if (match) {
+        if (match.status === 'Present') {
+          color = '#10b981';
+          title = `${match.subject}: Present`;
+        } else if (match.status === 'Late') {
+          color = '#fbbf24';
+          title = `${match.subject}: Late`;
+        } else {
+          color = '#ef4444';
+          title = `${match.subject}: Absent`;
+        }
+      }
+      
+      cells.push(
+        <Box 
+          key={checkDateStr} 
+          title={title}
+          sx={{ 
+            width: 20, 
+            height: 20, 
+            borderRadius: 0.5, 
+            bgcolor: color,
+            cursor: 'pointer',
+            transition: 'transform 0.2s',
+            '&:hover': { transform: 'scale(1.2)' }
+          }} 
+        />
+      );
+    }
+    return cells;
+  };
+
+  if (loading) {
+    return (
+      <AppLayout>
+        <Box display="flex" justifyContent="center" py={12}>
+          <CircularProgress />
+        </Box>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -274,212 +365,259 @@ const Dashboard = () => {
           </Grid>
         )}
 
-        {/* Stats Grid */}
+        {/* AI Insights Panel */}
+        <Card variant="outlined" sx={{ borderRadius: 3, borderLeft: '6px solid #8b5cf6' }}>
+          <CardContent>
+            <Box display="flex" alignItems="center" gap={1.5} mb={2}>
+              <AutoAwesomeIcon color="secondary" sx={{ fontSize: 24 }} />
+              <Typography variant="h6" fontWeight="bold">Smartttend AI Advice & Insights</Typography>
+            </Box>
+            
+            {aiLoading ? (
+              <Box display="flex" flexDirection="column" gap={1}>
+                <Skeleton width="95%" height={20} />
+                <Skeleton width="90%" height={20} />
+                <Skeleton width="60%" height={20} />
+              </Box>
+            ) : (
+              <Box sx={{ whiteSpace: 'pre-line' }}>
+                <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.6, fontSize: '0.95rem' }}>
+                  {aiInsights}
+                </Typography>
+              </Box>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Stats Row */}
         <Grid container spacing={3}>
-          {/* Card 1: Overall Attendance */}
+          {/* Card 1: Overall Percentage & Score */}
           <Grid item xs={12} md={4}>
             <Card sx={{ height: '100%', borderRadius: 3 }} variant="outlined">
               <CardContent sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <Typography variant="h6" color="text.secondary" gutterBottom fontWeight="bold">
                   Overall Attendance
                 </Typography>
-                <Box display="flex" justifyContent="center" alignItems="center" py={3} position="relative">
+                <Box display="flex" justifyContent="center" alignItems="center" py={2} position="relative">
                   <svg width="150" height="150" style={{ transform: 'rotate(-90deg)' }}>
                     <circle cx="75" cy="75" r="60" fill="transparent" stroke="rgba(0,0,0,0.06)" strokeWidth="12" />
                     <circle 
                       cx="75" cy="75" r="60" 
                       fill="transparent" 
-                      stroke={overall >= goal ? '#10b981' : '#f59e0b'} 
+                      stroke={analytics?.overall_attendance >= goal ? '#10b981' : '#ef4444'} 
                       strokeWidth="12" 
                       strokeDasharray="377" 
-                      strokeDashoffset={377 - (377 * overall) / 100} 
+                      strokeDashoffset={377 - (377 * (analytics?.overall_attendance || 0)) / 100} 
                       strokeLinecap="round"
                     />
                   </svg>
                   <Box position="absolute" display="flex" flexDirection="column" alignItems="center">
                     <Typography variant="h3" fontWeight="bold">
-                      {overall}%
+                      {analytics?.overall_attendance}%
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {overall >= goal ? 'Good Standing' : 'Low Average'}
+                    <Typography variant="caption" color="text.secondary" fontWeight="bold">
+                      Goal: {goal}%
                     </Typography>
                   </Box>
+                </Box>
+                <Chip 
+                  label={`Consistency Score: ${analytics?.score}/100 (${analytics?.score_label})`} 
+                  color={analytics?.score_color}
+                  icon={<StarIcon />}
+                  sx={{ mt: 1, fontWeight: 'bold' }}
+                />
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Card 2: Streaks summary */}
+          <Grid item xs={12} md={4}>
+            <Card sx={{ height: '100%', borderRadius: 3 }} variant="outlined">
+              <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Typography variant="h6" color="text.secondary" fontWeight="bold">
+                  Attendance Streaks
+                </Typography>
+
+                <Box display="flex" justifyContent="space-between" alignItems="center" p={1.5} component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                  <Typography variant="body2" color="text.secondary">Current Active Streak</Typography>
+                  <Chip label={`${analytics?.current_streak} Classes`} color="success" size="small" sx={{ fontWeight: 'bold' }} />
+                </Box>
+
+                <Box display="flex" justifyContent="space-between" alignItems="center" p={1.5} component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                  <Typography variant="body2" color="text.secondary">Longest Present Streak</Typography>
+                  <Chip label={`${analytics?.longest_present_streak} Classes`} color="primary" size="small" sx={{ fontWeight: 'bold' }} />
+                </Box>
+
+                <Box display="flex" justifyContent="space-between" alignItems="center" p={1.5} component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                  <Typography variant="body2" color="text.secondary">Longest Absence Streak</Typography>
+                  <Chip label={`${analytics?.longest_absent_streak} Classes`} color="error" size="small" sx={{ fontWeight: 'bold' }} />
                 </Box>
               </CardContent>
             </Card>
           </Grid>
 
-          {/* Card 2: Attendance Goal */}
+          {/* Card 3: Heatmap calendar */}
           <Grid item xs={12} md={4}>
-            <Card sx={{ height: '100%', borderRadius: 3, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }} variant="outlined">
-              <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <Box>
-                  <Typography variant="h6" color="text.secondary" gutterBottom fontWeight="bold">
-                    Attendance Goal
-                  </Typography>
-                  <Box display="flex" justifyContent="space-between" alignItems="center" mt={3} mb={1}>
-                    <Typography variant="h4" fontWeight="bold">
-                      {overall}% <Typography component="span" variant="body1" color="text.secondary">/ {goal}% Goal</Typography>
-                    </Typography>
+            <Card sx={{ height: '100%', borderRadius: 3 }} variant="outlined">
+              <CardContent>
+                <Typography variant="h6" color="text.secondary" fontWeight="bold" mb={2}>
+                  Consistency Calendar
+                </Typography>
+                <Box display="flex" gap={1.2} flexWrap="wrap" sx={{ width: '100%', py: 1 }}>
+                  {renderHeatmap()}
+                </Box>
+                <Box display="flex" gap={2} mt={3} justifyContent="space-between" flexWrap="wrap">
+                  <Box display="flex" gap={0.5} alignItems="center">
+                    <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: '#10b981' }} />
+                    <Typography variant="caption">Present</Typography>
                   </Box>
-                  <LinearProgress 
-                    variant="determinate" 
-                    value={Math.min((overall / goal) * 100, 100)} 
-                    color={overall >= goal ? 'success' : 'warning'}
-                    sx={{ height: 8, borderRadius: 4, mb: 3 }}
+                  <Box display="flex" gap={0.5} alignItems="center">
+                    <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: '#fbbf24' }} />
+                    <Typography variant="caption">Late</Typography>
+                  </Box>
+                  <Box display="flex" gap={0.5} alignItems="center">
+                    <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: '#ef4444' }} />
+                    <Typography variant="caption">Absent</Typography>
+                  </Box>
+                  <Box display="flex" gap={0.5} alignItems="center">
+                    <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: 'rgba(0,0,0,0.06)' }} />
+                    <Typography variant="caption">No Class</Typography>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+
+        {/* Charts Hub */}
+        <Grid container spacing={3}>
+          {/* Chart 1: Subject comparison BarChart */}
+          <Grid item xs={12} md={7}>
+            <Card variant="outlined" sx={{ borderRadius: 3, height: 350 }}>
+              <CardContent sx={{ height: '100%' }}>
+                <Typography variant="subtitle1" fontWeight="bold" mb={2}>Subject Comparison</Typography>
+                <ResponsiveContainer width="100%" height="80%">
+                  <BarChart data={analytics?.subjects || []} margin={{ bottom: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="code" />
+                    <YAxis domain={[0, 100]} />
+                    <Tooltip formatter={(value) => [`${value}%`, 'Attendance']} />
+                    <Bar dataKey="percentage" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Chart 2: Monthly trend LineChart */}
+          <Grid item xs={12} md={5}>
+            <Card variant="outlined" sx={{ borderRadius: 3, height: 350 }}>
+              <CardContent sx={{ height: '100%' }}>
+                <Typography variant="subtitle1" fontWeight="bold" mb={2}>Attendance Trends</Typography>
+                {analytics?.monthly_distribution?.length === 0 ? (
+                  <Box display="flex" justify="center" align="center" height="70%">
+                    <Typography variant="body2" color="text.secondary">No historical trend data yet</Typography>
+                  </Box>
+                ) : (
+                  <ResponsiveContainer width="100%" height="80%">
+                    <LineChart data={analytics?.monthly_distribution || []}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis domain={[0, 100]} />
+                      <Tooltip formatter={(value) => [`${value}%`, 'Attendance']} />
+                      <Line type="monotone" dataKey="percentage" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 5 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+
+        {/* Scenario Simulator & Subject Grid */}
+        <Grid container spacing={3}>
+          {/* Left: Simulator */}
+          <Grid item xs={12} md={5}>
+            <Card variant="outlined" sx={{ borderRadius: 3, height: '100%' }}>
+              <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <Box display="flex" alignItems="center" gap={1}>
+                  <ShowChartIcon color="primary" />
+                  <Typography variant="subtitle1" fontWeight="bold">Semester Simulator</Typography>
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  Drag the sliders below to simulate hypothetical check-in outcomes. Percentages refresh in real-time without database writes.
+                </Typography>
+
+                <Box>
+                  <Typography variant="body2" fontWeight="bold" mb={1}>Attend upcoming classes: +{attendCount}</Typography>
+                  <Slider 
+                    value={attendCount} 
+                    min={0} 
+                    max={15} 
+                    onChange={(e, val) => setAttendCount(val)} 
+                    valueLabelDisplay="auto" 
                   />
                 </Box>
-                <Box bgcolor="action.hover" p={2} borderRadius={2} borderLeft={`4px solid ${overall >= goal ? '#10b981' : '#f59e0b'}`}>
-                  <Box display="flex" gap={1} alignItems="flex-start">
-                    <WarningAmberIcon color={overall >= goal ? 'success' : 'warning'} />
-                    <Typography variant="body2" color="text.secondary">
-                      {overall >= goal 
-                        ? `You are currently above your target goal of ${goal}%! Keep checking in regularly to stay safe.`
-                        : `You need to attend the next ${summary?.consecutive_needed ?? 0} lecture(s) consecutively to raise your total average to the ${goal}% target.`}
-                    </Typography>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
 
-          {/* Card 3: Today's Lectures */}
-          <Grid item xs={12} md={4}>
-            <Card sx={{ height: '100%', borderRadius: 3 }} variant="outlined">
-              <CardContent>
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                  <Typography variant="h6" color="text.secondary" fontWeight="bold">
-                    Today's Lectures
+                <Box>
+                  <Typography variant="body2" fontWeight="bold" mb={1} color="error.main">Miss upcoming classes: -{missCount}</Typography>
+                  <Slider 
+                    value={missCount} 
+                    min={0} 
+                    max={15} 
+                    onChange={(e, val) => setMissCount(val)} 
+                    valueLabelDisplay="auto"
+                    color="error"
+                  />
+                </Box>
+
+                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'action.hover' }} variant="outlined">
+                  <Typography variant="body2" color="text.secondary">Simulated Final Percentage</Typography>
+                  <Typography variant="h4" fontWeight="bold" sx={{ color: simulatedPct >= 75 ? 'success.main' : 'error.main', mt: 0.5 }}>
+                    {simulatedPct}%
                   </Typography>
-                  <Chip label={todayDayName} size="small" variant="outlined" />
-                </Box>
-                {todayLectures.length === 0 ? (
-                  <Box py={5} textAlign="center">
-                    <Typography variant="body2" color="text.secondary">No lectures scheduled today</Typography>
-                  </Box>
-                ) : (
-                  <List sx={{ maxH: 260, overflowY: 'auto' }}>
-                    {todayLectures.map((lecture, index) => {
-                      const isMarked = lecture.attendance_status !== null;
-                      return (
-                        <Box key={lecture.id}>
-                          <ListItem alignItems="flex-start" sx={{ px: 0 }}>
-                            <ListItemIcon sx={{ minWidth: 32, mt: 0.5 }}>
-                              <EventNoteIcon color={isMarked ? 'success' : 'action'} />
-                            </ListItemIcon>
-                            <ListItemText
-                              primary={lecture.subject_details?.name}
-                              primaryTypographyProps={{ variant: 'body2', fontWeight: 'bold' }}
-                              secondary={`${formatTime(lecture.start_time)} - ${formatTime(lecture.end_time)} • ${lecture.lecture_type}`}
-                            />
-                            <Box sx={{ ml: 'auto', alignSelf: 'center' }}>
-                              <Chip 
-                                label={isMarked ? lecture.attendance_status : 'Pending'} 
-                                size="small" 
-                                color={isMarked ? (lecture.attendance_status === 'Absent' ? 'error' : 'success') : 'default'}
-                                sx={{ fontSize: '0.7rem', fontWeight: 'bold', height: 20 }}
-                              />
-                            </Box>
-                          </ListItem>
-                          {index < todayLectures.length - 1 && <Divider component="li" />}
-                        </Box>
-                      );
-                    })}
-                  </List>
-                )}
+                  <Typography variant="caption" color="text.secondary">
+                    {simulatedPct >= 75 ? 'Eligible for Exams ✓' : 'Below 75% limit ✗'}
+                  </Typography>
+                </Paper>
               </CardContent>
             </Card>
           </Grid>
 
-          {/* Card 4: Subjects List */}
+          {/* Right: Subjects list */}
           <Grid item xs={12} md={7}>
-            <Card sx={{ height: '100%', borderRadius: 3 }} variant="outlined">
+            <Card variant="outlined" sx={{ borderRadius: 3, height: '100%' }}>
               <CardContent>
-                <Typography variant="h6" color="text.secondary" gutterBottom fontWeight="bold" sx={{ mb: 2 }}>
-                  Subject-wise Attendance
-                </Typography>
+                <Typography variant="subtitle1" fontWeight="bold" mb={2}>Subject Details (Click to view analysis)</Typography>
                 <Grid container spacing={2}>
-                  {summary?.subjects?.length === 0 ? (
-                    <Grid item xs={12} textAlign="center" py={4}>
-                      <Typography variant="body2" color="text.secondary">No subjects found. Open the Timetable tab to add subjects.</Typography>
-                    </Grid>
-                  ) : (
-                    summary?.subjects?.map((subj) => (
-                      <Grid item xs={12} key={subj.id}>
-                        <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                          <CardActionArea onClick={() => navigate(`/subjects/${subj.id}`)}>
-                            <Box sx={{ p: 2 }}>
-                              <Box display="flex" justifyContent="space-between" mb={1} alignItems="center">
-                                <Box display="flex" alignItems="center" gap={1.5}>
-                                  <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: subj.color }} />
-                                  <Box>
-                                    <Typography variant="body2" fontWeight="bold">
-                                      {subj.name}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      {subj.code} • Attended: {subj.present_count + subj.late_count}/{subj.total_lectures}
-                                    </Typography>
-                                  </Box>
-                                </Box>
-                                <Typography 
-                                  variant="body2" 
-                                  fontWeight="bold" 
-                                  color={subj.percentage >= goal ? 'success.main' : 'warning.main'}
-                                >
-                                  {subj.percentage}%
-                                </Typography>
-                              </Box>
+                  {analytics?.subjects?.map((sub) => (
+                    <Grid item xs={12} sm={6} key={sub.id}>
+                      <Card variant="outlined" sx={{ borderRadius: 2 }}>
+                        <CardActionArea onClick={() => navigate(`/subjects/${sub.id}`)}>
+                          <Box sx={{ p: 2, borderLeft: `5px solid ${sub.color}` }}>
+                            <Box display="flex" justify="space-between" mb={1} alignItems="center">
+                              <Typography variant="body2" fontWeight="bold">{sub.code}</Typography>
+                              <Typography variant="body2" fontWeight="bold" color={sub.percentage >= goal ? 'success.main' : 'error.main'}>
+                                {sub.percentage}%
+                              </Typography>
+                            </Box>
+                            <Typography variant="caption" color="text.secondary" display="block" noWrap>
+                              {sub.name}
+                            </Typography>
+                            <Box mt={1.5}>
                               <LinearProgress 
                                 variant="determinate" 
-                                value={subj.percentage} 
-                                color={subj.percentage >= goal ? 'success' : 'warning'}
-                                sx={{ height: 6, borderRadius: 3 }}
+                                value={sub.percentage} 
+                                color={sub.percentage >= goal ? 'success' : 'error'}
+                                sx={{ height: 5, borderRadius: 2 }}
                               />
                             </Box>
-                          </CardActionArea>
-                        </Card>
-                      </Grid>
-                    ))
-                  )}
+                          </Box>
+                        </CardActionArea>
+                      </Card>
+                    </Grid>
+                  ))}
                 </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Card 5: Recent Activity */}
-          <Grid item xs={12} md={5}>
-            <Card sx={{ height: '100%', borderRadius: 3 }} variant="outlined">
-              <CardContent>
-                <Typography variant="h6" color="text.secondary" gutterBottom fontWeight="bold">
-                  Recent Activity
-                </Typography>
-                {recentActivities.length === 0 ? (
-                  <Box py={5} textAlign="center">
-                    <Typography variant="body2" color="text.secondary">No recent check-ins recorded yet.</Typography>
-                  </Box>
-                ) : (
-                  <List>
-                    {recentActivities.map((activity, index) => (
-                      <Box key={activity.id}>
-                        <ListItem sx={{ px: 0 }}>
-                          <ListItemIcon sx={{ minWidth: 32 }}>
-                            <CheckCircleIcon color={activity.status === 'Absent' ? 'error' : 'success'} />
-                          </ListItemIcon>
-                          <ListItemText
-                            primary={
-                              <Typography variant="body2" fontWeight="medium">
-                                Marked <strong>{activity.status}</strong> in {activity.subject_details?.name}
-                              </Typography>
-                            }
-                            secondary={new Date(activity.date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                            secondaryTypographyProps={{ variant: 'caption' }}
-                          />
-                        </ListItem>
-                        {index < recentActivities.length - 1 && <Divider component="li" />}
-                      </Box>
-                    ))}
-                  </List>
-                )}
               </CardContent>
             </Card>
           </Grid>

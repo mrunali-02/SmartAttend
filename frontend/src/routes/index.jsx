@@ -9,6 +9,7 @@ import Timetable from '../pages/Timetable/Timetable';
 import Attendance from '../pages/Attendance/Attendance';
 import AttendanceHistory from '../pages/Attendance/AttendanceHistory';
 import SubjectDetails from '../pages/SubjectDetails/SubjectDetails';
+import Reports from '../pages/Reports/Reports';
 import NotFound from '../pages/NotFound/NotFound';
 import ProtectedRoute from '../components/auth/ProtectedRoute';
 import PublicRoute from '../components/auth/PublicRoute';
@@ -75,6 +76,14 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <SubjectDetails />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/reports"
+        element={
+          <ProtectedRoute>
+            <Reports />
           </ProtectedRoute>
         }
       />

@@ -24,6 +24,8 @@ urlpatterns = [
     path('api/users/', include('users.urls')),
     path('api/timetable/', include('timetable.urls')),
     path('api/attendance/', include('attendance.urls')),
+    path('api/analytics/', include('analytics.urls')),
+    path('api/ai/', include('ai.urls')),
 ]
 
 if settings.DEBUG:
