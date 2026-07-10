@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import api from '../../services/api';
+import { queueOfflineCheckIn } from '../../services/offlineSync';
 import {
   Box,
   Card,
@@ -78,17 +79,53 @@ const Attendance = () => {
     if (!slot) return;
 
     setSubmitting(true);
-    try {
-      // Send the device local time in standard ISO format
-      const deviceTimeStr = new Date().toISOString();
-      const todayDateStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local format
+    
+    const deviceTimeStr = new Date().toISOString();
+    const todayDateStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local format
 
-      const res = await api.post('/attendance/records/mark/', {
+    // Check Offline status
+    if (!navigator.onLine) {
+      const payload = {
         lecture_slot_id: slot.id,
         date: todayDateStr,
         status: statusVal,
         device_time: deviceTimeStr,
         remarks: remarks
+      };
+      
+      queueOfflineCheckIn(payload);
+      showNotification('You are offline. Attendance check-in queued locally! It will auto-sync when online.', 'warning');
+      
+      // Optimistically update list
+      setLectures(prev => prev.map(l => l.id === slot.id ? { ...l, attendance_status: statusVal } : l));
+      setMarkDialog({ open: false, slot: null });
+      setSubmitting(false);
+      return;
+    }
+
+    // Retrieve browser GPS coordinates
+    let lat = null;
+    let lon = null;
+    
+    try {
+      const pos = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 6000 });
+      });
+      lat = pos.coords.latitude;
+      lon = pos.coords.longitude;
+    } catch (err) {
+      console.warn('Geolocation coordinates retrieval failed or timed out:', err);
+    }
+
+    try {
+      const res = await api.post('/attendance/records/mark/', {
+        lecture_slot_id: slot.id,
+        date: todayDateStr,
+        status: statusVal,
+        device_time: deviceTimeStr,
+        remarks: remarks,
+        latitude: lat,
+        longitude: lon
       });
 
       showNotification(res.data.detail || 'Attendance marked successfully!');

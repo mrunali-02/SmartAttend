@@ -10,6 +10,9 @@ import Attendance from '../pages/Attendance/Attendance';
 import AttendanceHistory from '../pages/Attendance/AttendanceHistory';
 import SubjectDetails from '../pages/SubjectDetails/SubjectDetails';
 import Reports from '../pages/Reports/Reports';
+import Chat from '../pages/Chat/Chat';
+import Settings from '../pages/Settings/Settings';
+import NotificationsCenter from '../pages/Notifications/Notifications';
 import NotFound from '../pages/NotFound/NotFound';
 import ProtectedRoute from '../components/auth/ProtectedRoute';
 import PublicRoute from '../components/auth/PublicRoute';
@@ -92,6 +95,30 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <Profile />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <Chat />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <Settings />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/notifications"
+        element={
+          <ProtectedRoute>
+            <NotificationsCenter />
           </ProtectedRoute>
         }
       />

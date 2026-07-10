@@ -31,6 +31,9 @@ import ScheduleIcon from '@mui/icons-material/Schedule';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import StarIcon from '@mui/icons-material/Star';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
+import SyncIcon from '@mui/icons-material/Sync';
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
+import { syncOfflineRecords, getOfflineQueueCount } from '../../services/offlineSync';
 
 // Recharts imports
 import {
@@ -66,6 +69,9 @@ const Dashboard = () => {
   const [missCount, setMissCount] = useState(0);
   const [attendCount, setAttendCount] = useState(0);
 
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [offlineCount, setOfflineCount] = useState(0);
+
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
@@ -94,12 +100,44 @@ const Dashboard = () => {
     }
   };
 
+  const fetchUnreadCount = async () => {
+    try {
+      const res = await api.get('/attendance/notifications/');
+      setUnreadNotifications(res.data.filter(n => !n.is_read).length);
+    } catch (err) {
+      console.error('Failed to load notifications:', err);
+    }
+  };
+
+  const handleSyncOffline = async () => {
+    if (!navigator.onLine) return;
+    await syncOfflineRecords(() => {
+      showSyncSuccess();
+      setOfflineCount(getOfflineQueueCount());
+      fetchDashboardData();
+    });
+  };
+
+  const showSyncSuccess = () => {
+    // Notify locally or console
+    console.log('Background attendance sync completed.');
+  };
+
   useEffect(() => {
     fetchDashboardData();
     fetchAIInsights();
+    fetchUnreadCount();
+    
+    // Check local storage queue
+    const count = getOfflineQueueCount();
+    setOfflineCount(count);
+    if (count > 0 && navigator.onLine) {
+      handleSyncOffline();
+    }
 
     const interval = setInterval(() => {
       setTickerTime(new Date());
+      setOfflineCount(getOfflineQueueCount());
     }, 20000);
 
     return () => clearInterval(interval);
@@ -295,6 +333,66 @@ const Dashboard = () => {
                 </Button>
               </Grid>
             </Grid>
+          </CardContent>
+        </Card>
+
+        {/* PWA Queue & Sync & Notification Badges */}
+        {(offlineCount > 0 || unreadNotifications > 0) && (
+          <Box display="flex" gap={2} flexWrap="wrap">
+            {offlineCount > 0 && (
+              <Chip
+                icon={<SyncIcon sx={{ animation: 'spin 2s linear infinite', '@keyframes spin': { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } } }} />}
+                label={`${offlineCount} Offline Check-in(s) Queued. Click to Sync.`}
+                color="warning"
+                onClick={handleSyncOffline}
+                sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+              />
+            )}
+            {unreadNotifications > 0 && (
+              <Chip
+                icon={<NotificationsActiveIcon />}
+                label={`You have ${unreadNotifications} unread notification(s)`}
+                color="error"
+                onClick={() => navigate('/notifications')}
+                sx={{ fontWeight: 'bold', cursor: 'pointer' }}
+              />
+            )}
+          </Box>
+        )}
+
+        {/* Daily AI Briefing Card */}
+        <Card 
+          variant="outlined" 
+          sx={{ 
+            borderRadius: 3, 
+            bgcolor: 'action.hover', 
+            border: '1.5px dashed', 
+            borderColor: 'primary.light' 
+          }}
+        >
+          <CardContent sx={{ p: 2.5, display: 'flex', gap: 2, alignItems: 'center' }}>
+            <Avatar sx={{ bgcolor: 'primary.main', width: 44, height: 44 }}>
+              <AutoAwesomeIcon />
+            </Avatar>
+            <Box>
+              <Typography variant="subtitle2" fontWeight="bold" color="primary.main">
+                ☀️ Daily AI Briefing
+              </Typography>
+              <Typography variant="body2" mt={0.5}>
+                Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, {user?.full_name || 'Student'}! 
+                You have <strong>{todayLectures.length}</strong> lecture(s) scheduled for today. 
+                Your cumulative average is <strong>{analytics?.overall_attendance || 0}%</strong>.
+                {analytics?.subjects?.length > 0 && (() => {
+                  const lowest = [...analytics.subjects].sort((a,b) => a.percentage - b.percentage)[0];
+                  if (lowest && lowest.percentage < 75) {
+                    const attended = lowest.present + lowest.late;
+                    const nextPct = Math.round(((attended + 1) / (lowest.total + 1)) * 100 * 10) / 10;
+                    return ` Note: '${lowest.name}' (${lowest.code}) needs attention. Attending today's lecture will increase it to ${nextPct}%.`;
+                  }
+                  return '';
+                })()}
+              </Typography>
+            </Box>
           </CardContent>
         </Card>
 

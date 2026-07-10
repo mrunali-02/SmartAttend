@@ -63,8 +63,8 @@ const AppLayout = ({ children }) => {
     { text: 'Timetable', icon: <CalendarTodayIcon />, path: '/timetable' },
     { text: 'History', icon: <BarChartIcon />, path: '/history' },
     { text: 'Reports', icon: <AssessmentIcon />, path: '/reports' },
-    { text: 'AI Assistant', icon: <AutoAwesomeIcon />, path: '#' },
-    { text: 'Settings', icon: <SettingsIcon />, path: '#' },
+    { text: 'AI Assistant', icon: <AutoAwesomeIcon />, path: '/chat' },
+    { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
   ];
 
   const drawerContent = (
@@ -178,11 +178,17 @@ const AppLayout = ({ children }) => {
                       ? 'Attendance History' 
                       : location.pathname === '/reports'
                         ? 'Attendance Reports'
-                        : location.pathname === '/profile' 
-                          ? 'User Profile' 
-                          : location.pathname.startsWith('/subjects/') 
-                            ? 'Subject Details' 
-                            : 'Smartttend'}
+                        : location.pathname === '/chat'
+                          ? 'AI Chat Assistant'
+                          : location.pathname === '/settings'
+                            ? 'Settings & Preferences'
+                            : location.pathname === '/notifications'
+                              ? 'Notification Center'
+                              : location.pathname === '/profile' 
+                                ? 'User Profile' 
+                                : location.pathname.startsWith('/subjects/') 
+                                  ? 'Subject Details' 
+                                  : 'Smartttend'}
             </Typography>
           </Box>
           <Box display="flex" alignItems="center" gap={1.5}>

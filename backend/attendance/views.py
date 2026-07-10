@@ -6,6 +6,7 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils.dateparse import parse_datetime
+from ai.models import AIMemory
 
 from .models import Attendance
 from .serializers import AttendanceSerializer
@@ -85,6 +86,37 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             slot = LectureSlot.objects.get(id=slot_id, user=request.user)
         except LectureSlot.DoesNotExist:
             return Response({"error": "Lecture slot not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Geofencing coordinates validation
+        memory, _ = AIMemory.objects.get_or_create(user=request.user)
+        if memory.geofencing_enabled:
+            lat = request.data.get('latitude')
+            lon = request.data.get('longitude')
+            if lat is None or lon is None:
+                return Response({
+                    "error": "Location coordinates (latitude and longitude) are required to mark attendance due to geofencing policy."
+                }, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                lat1, lon1 = float(lat), float(lon)
+                lat2, lon2 = memory.college_latitude, memory.college_longitude
+                
+                # Haversine formula
+                R = 6371000.0 # Earth radius in meters
+                phi1 = math.radians(lat1)
+                phi2 = math.radians(lat2)
+                dphi = math.radians(lat2 - lat1)
+                dlambda = math.radians(lon2 - lon1)
+                
+                a = math.sin(dphi/2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda/2)**2
+                c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+                distance = R * c
+                
+                if distance > memory.geofence_radius_meters:
+                    return Response({
+                        "error": f"Verification failed. You are outside the allowed college bounds (Distance: {round(distance, 1)}m, limit: {memory.geofence_radius_meters}m)."
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            except (ValueError, TypeError):
+                return Response({"error": "Invalid location coordinates values."}, status=status.HTTP_400_BAD_REQUEST)
 
         # 2. Determine check-in datetime
         if device_time_str:
