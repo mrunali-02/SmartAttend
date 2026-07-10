@@ -5,6 +5,10 @@ import Login from '../pages/Login/Login';
 import Signup from '../pages/Signup/Signup';
 import Dashboard from '../pages/Dashboard/Dashboard';
 import Profile from '../pages/Profile/Profile';
+import Timetable from '../pages/Timetable/Timetable';
+import Attendance from '../pages/Attendance/Attendance';
+import AttendanceHistory from '../pages/Attendance/AttendanceHistory';
+import SubjectDetails from '../pages/SubjectDetails/SubjectDetails';
 import NotFound from '../pages/NotFound/NotFound';
 import ProtectedRoute from '../components/auth/ProtectedRoute';
 import PublicRoute from '../components/auth/PublicRoute';
@@ -39,6 +43,38 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/timetable"
+        element={
+          <ProtectedRoute>
+            <Timetable />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/attendance"
+        element={
+          <ProtectedRoute>
+            <Attendance />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/history"
+        element={
+          <ProtectedRoute>
+            <AttendanceHistory />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/subjects/:id"
+        element={
+          <ProtectedRoute>
+            <SubjectDetails />
           </ProtectedRoute>
         }
       />

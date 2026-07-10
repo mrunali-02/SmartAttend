@@ -58,9 +58,9 @@ const AppLayout = ({ children }) => {
 
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
-    { text: 'Attendance', icon: <CheckCircleIcon />, path: '#' },
-    { text: 'Timetable', icon: <CalendarTodayIcon />, path: '#' },
-    { text: 'Analytics', icon: <BarChartIcon />, path: '#' },
+    { text: 'Attendance', icon: <CheckCircleIcon />, path: '/attendance' },
+    { text: 'Timetable', icon: <CalendarTodayIcon />, path: '/timetable' },
+    { text: 'History', icon: <BarChartIcon />, path: '/history' },
     { text: 'AI Assistant', icon: <AutoAwesomeIcon />, path: '#' },
     { text: 'Settings', icon: <SettingsIcon />, path: '#' },
   ];
@@ -166,7 +166,19 @@ const AppLayout = ({ children }) => {
               <MenuIcon />
             </IconButton>
             <Typography variant="h6" noWrap component="div" fontWeight="bold">
-              {location.pathname === '/dashboard' ? 'Dashboard' : 'User Profile'}
+              {location.pathname === '/dashboard' 
+                ? 'Dashboard' 
+                : location.pathname === '/attendance' 
+                  ? 'Mark Attendance' 
+                  : location.pathname === '/timetable' 
+                    ? 'Timetable Management' 
+                    : location.pathname === '/history' 
+                      ? 'Attendance History' 
+                      : location.pathname === '/profile' 
+                        ? 'User Profile' 
+                        : location.pathname.startsWith('/subjects/') 
+                          ? 'Subject Details' 
+                          : 'Smartttend'}
             </Typography>
           </Box>
           <Box display="flex" alignItems="center" gap={1.5}>
