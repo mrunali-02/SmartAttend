@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
+import { useUser, useAuth as useClerkAuth } from '@clerk/clerk-react';
 import api from '../services/api';
 
 const AuthContext = createContext(null);
@@ -6,93 +7,103 @@ const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
+  const { isLoaded, isSignedIn, user: clerkUser } = useUser();
+  const { getToken, signOut } = useClerkAuth();
+  
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Setup dynamic request interceptor to attach Clerk JWT to API requests
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const interceptor = api.interceptors.request.use(
+      async (config) => {
+        try {
+          // In mock development fallback, if Clerk isn't set up, we send a mock token
+          let token = null;
+          if (isSignedIn) {
+            token = await getToken();
+            if (clerkUser) {
+              const email = clerkUser.primaryEmailAddress?.emailAddress;
+              if (email) {
+                config.headers['X-User-Email'] = email;
+              }
+              const fullName = clerkUser.fullName || `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim();
+              if (fullName) {
+                config.headers['X-User-Name'] = fullName;
+              }
+              const imageUrl = clerkUser.imageUrl;
+              if (imageUrl) {
+                config.headers['X-User-Image'] = imageUrl;
+              }
+            }
+          } else if (import.meta.env.DEV) {
+            token = localStorage.getItem('mockAccessToken');
+          }
+
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+          }
+        } catch (err) {
+          console.error("Error retrieving Clerk session token:", err);
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+
+    return () => {
+      api.interceptors.request.eject(interceptor);
+    };
+  }, [isLoaded, isSignedIn, getToken]);
 
   const fetchProfile = async () => {
     try {
       const response = await api.get('/users/profile/');
       setUser(response.data);
     } catch (error) {
-      console.error("Failed to fetch user profile", error);
-      logoutStateOnly();
+      console.error("Failed to retrieve profile:", error);
+      setUser(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const logoutStateOnly = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    setUser(null);
-    setLoading(false);
-  };
-
   useEffect(() => {
-    const accessToken = localStorage.getItem('accessToken');
-    if (accessToken) {
+    if (!isLoaded) return;
+
+    if (isSignedIn) {
       fetchProfile();
     } else {
-      setLoading(false);
+      // Dev mode mock login check
+      const mockToken = localStorage.getItem('mockAccessToken');
+      if (mockToken && import.meta.env.DEV) {
+        fetchProfile();
+      } else {
+        setUser(null);
+        setLoading(false);
+      }
     }
+  }, [isLoaded, isSignedIn, clerkUser]);
 
-    const handleForceLogout = () => {
-      logoutStateOnly();
-    };
-
-    window.addEventListener('auth-logout', handleForceLogout);
-    return () => {
-      window.removeEventListener('auth-logout', handleForceLogout);
-    };
-  }, []);
-
-  const login = async (email, password) => {
-    setLoading(true);
-    try {
-      const response = await api.post('/users/login/', { email, password });
-      const { access, refresh } = response.data;
-      localStorage.setItem('accessToken', access);
-      localStorage.setItem('refreshToken', refresh);
-      
-      const profileResponse = await api.get('/users/profile/');
-      setUser(profileResponse.data);
-      return { success: true };
-    } catch (error) {
-      console.error("Login error", error);
-      setLoading(false);
-      return {
-        success: false,
-        error: error.response?.data?.detail || "Invalid email or password."
-      };
-    }
+  const login = async () => {
+    // Handled by Clerk components in UI
   };
 
-  const register = async (formData) => {
-    setLoading(true);
-    try {
-      await api.post('/users/register/', formData);
-      setLoading(false);
-      return { success: true };
-    } catch (error) {
-      console.error("Registration error", error);
-      setLoading(false);
-      return {
-        success: false,
-        error: error.response?.data || { detail: "Registration failed." }
-      };
-    }
+  const register = async () => {
+    // Handled by Clerk components in UI
   };
 
   const logout = async () => {
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (refreshToken) {
-      try {
-        await api.post('/users/logout/', { refresh: refreshToken });
-      } catch (error) {
-        console.error("Logout request failed", error);
-      }
+    setLoading(true);
+    if (isSignedIn) {
+      await signOut();
+    } else {
+      localStorage.removeItem('mockAccessToken');
     }
-    logoutStateOnly();
+    setUser(null);
+    setLoading(false);
   };
 
   const updateProfile = async (formData) => {
@@ -113,10 +124,24 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const isProfileIncomplete = user && (
+    !user.college_name || 
+    !user.semester || 
+    !user.division || 
+    !user.roll_number || 
+    !user.batch || 
+    !user.department || 
+    !user.academic_year || 
+    !user.student_id || 
+    !user.prn_number || 
+    !user.full_name
+  );
+
   const value = {
     user,
-    loading,
+    loading: !isLoaded || loading,
     isAuthenticated: !!user,
+    isProfileIncomplete,
     login,
     register,
     logout,

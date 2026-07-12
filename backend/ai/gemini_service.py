@@ -81,8 +81,8 @@ def get_gemini_insights(stats_data):
         import google.generativeai as genai
         genai.configure(api_key=api_key)
         
-        # We use the standard gemini-1.5-flash or gemini-2.5-flash model
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # We use the standard gemini-2.5-flash model
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         prompt = f"""
         You are 'Smartttend AI', a helpful, professional, and friendly academic assistant advising a college student on their lecture attendance.

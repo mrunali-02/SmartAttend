@@ -46,11 +46,11 @@ INSTALLED_APPS = [
     'corsheaders',
     
     # Local apps
-    'users',
-    'attendance',
-    'timetable',
-    'analytics',
-    'ai',
+    'users.apps.UsersConfig',
+    'attendance.apps.AttendanceConfig',
+    'timetable.apps.TimetableConfig',
+    'analytics.apps.AnalyticsConfig',
+    'ai.apps.AiConfig',
 ]
 
 MIDDLEWARE = [
@@ -160,34 +160,23 @@ AUTH_USER_MODEL = 'users.User'
 # Django REST Framework Settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'users.authentication.ClerkAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
 }
 
-# SimpleJWT Settings
-from datetime import timedelta
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
-    'UPDATE_LAST_LOGIN': False,
-    'ALGORITHM': 'HS256',
-    'SIGNING_KEY': SECRET_KEY,
-    'AUDIENCE': None,
-    'ISSUER': None,
-    'AUTH_HEADER_TYPES': ('Bearer',),
-    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
-    'USER_ID_FIELD': 'id',
-    'USER_ID_CLAIM': 'user_id',
-}
-
 # CORS Settings
 CORS_ALLOW_ALL_ORIGINS = True  # For development purposes. Can configure specific origins via CORS_ALLOWED_ORIGINS
 CORS_ALLOW_CREDENTIALS = True
+
+from corsheaders.defaults import default_headers
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'x-user-email',
+    'x-user-name',
+    'x-user-image',
+]
 
 # Media files
 MEDIA_URL = '/media/'

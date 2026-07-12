@@ -1,58 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import AppLayout from '../../components/layout/AppLayout';
 import api from '../../services/api';
+import AppLayout from '../../components/layout/AppLayout';
 import {
   Box,
   Card,
   CardContent,
-  Grid,
   Typography,
-  LinearProgress,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Divider,
-  Paper,
   Button,
   CircularProgress,
   Chip,
-  CardActionArea,
-  Slider,
-  Skeleton
+  Paper,
+  Divider,
+  Grid,
+  Skeleton,
+  LinearProgress,
+  List,
+  ListItem
 } from '@mui/material';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import EventNoteIcon from '@mui/icons-material/EventNote';
-import WarningAmberIcon from '@mui/icons-material/WarningAmber';
-import SchoolIcon from '@mui/icons-material/School';
-import ScheduleIcon from '@mui/icons-material/Schedule';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import StarIcon from '@mui/icons-material/Star';
-import ShowChartIcon from '@mui/icons-material/ShowChart';
-import SyncIcon from '@mui/icons-material/Sync';
-import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
-import { syncOfflineRecords, getOfflineQueueCount } from '../../services/offlineSync';
+import { 
+  CheckCircle2 as CheckCircleIcon, 
+  Clock as AccessTimeIcon, 
+  AlertTriangle as WarningIcon, 
+  Sparkles as AutoAwesomeIcon 
+} from 'lucide-react';
+import { motion } from 'framer-motion';
+import { toast } from 'sonner';
 
-// Recharts imports
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
-  Legend
-} from 'recharts';
+// Simple animated counter using RAF
+const AnimatedCount = ({ value }) => {
+  const [display, setDisplay] = React.useState(0);
+  React.useEffect(() => {
+    let start = 0;
+    const duration = 1200;
+    const step = (timestamp) => {
+      if (!start) start = timestamp;
+      const progress = Math.min((timestamp - start) / duration, 1);
+      setDisplay(progress * value);
+      if (progress < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }, [value]);
+  return <span>{display.toFixed(1)}%</span>;
+};
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -61,147 +52,121 @@ const Dashboard = () => {
   const [analytics, setAnalytics] = useState(null);
   const [todayLectures, setTodayLectures] = useState([]);
   const [aiInsights, setAiInsights] = useState('');
-  const [aiLoading, setAiLoading] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [tickerTime, setTickerTime] = useState(new Date());
-
-  // Slider simulator states
-  const [missCount, setMissCount] = useState(0);
-  const [attendCount, setAttendCount] = useState(0);
-
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
-  const [offlineCount, setOfflineCount] = useState(0);
+  const [submittingId, setSubmittingId] = useState(null);
+  const showToast = (message, severity = 'success') => {
+    if (severity === 'success') toast.success(message);
+    else if (severity === 'error') toast.error(message);
+    else if (severity === 'warning') toast.warning(message);
+    else toast(message);
+  };
 
   const fetchDashboardData = async () => {
-    setLoading(true);
     try {
       const analyticRes = await api.get('/analytics/dashboard/');
       setAnalytics(analyticRes.data);
 
       const todayRes = await api.get('/timetable/slots/today/');
-      setTodayLectures(todayRes.data.lectures);
+      setTodayLectures(todayRes.data.lectures || []);
     } catch (err) {
-      console.error('Failed to load analytics dashboard data:', err);
+      console.error('Failed to load dashboard data:', err);
     } finally {
       setLoading(false);
     }
   };
 
   const fetchAIInsights = async () => {
-    setAiLoading(true);
     try {
       const aiRes = await api.get('/ai/insights/');
-      setAiInsights(aiRes.data.insights);
+      setAiInsights(aiRes.data.insights || '');
     } catch (err) {
       console.error('Failed to load AI insights:', err);
-      setAiInsights('Failed to generate insights. Please try again later.');
-    } finally {
-      setAiLoading(false);
+      setAiInsights('Attend today\'s classes to maintain your attendance standing.');
     }
-  };
-
-  const fetchUnreadCount = async () => {
-    try {
-      const res = await api.get('/attendance/notifications/');
-      setUnreadNotifications(res.data.filter(n => !n.is_read).length);
-    } catch (err) {
-      console.error('Failed to load notifications:', err);
-    }
-  };
-
-  const handleSyncOffline = async () => {
-    if (!navigator.onLine) return;
-    await syncOfflineRecords(() => {
-      showSyncSuccess();
-      setOfflineCount(getOfflineQueueCount());
-      fetchDashboardData();
-    });
-  };
-
-  const showSyncSuccess = () => {
-    // Notify locally or console
-    console.log('Background attendance sync completed.');
   };
 
   useEffect(() => {
     fetchDashboardData();
     fetchAIInsights();
-    fetchUnreadCount();
-    
-    // Check local storage queue
-    const count = getOfflineQueueCount();
-    setOfflineCount(count);
-    if (count > 0 && navigator.onLine) {
-      handleSyncOffline();
-    }
 
-    const interval = setInterval(() => {
-      setTickerTime(new Date());
-      setOfflineCount(getOfflineQueueCount());
-    }, 20000);
-
-    return () => clearInterval(interval);
+    // Listen for attendance updates from Quick Mark or Attendance Page
+    const handleRefresh = () => {
+      fetchDashboardData();
+      fetchAIInsights();
+    };
+    window.addEventListener('attendanceMarked', handleRefresh);
+    return () => window.removeEventListener('attendanceMarked', handleRefresh);
   }, []);
 
-  // Parse slot times into Date objects for comparison
-  const parseSlotTime = (timeStr) => {
-    const today = new Date();
-    const [h, m] = timeStr.split(':').map(Number);
-    return new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m, 0);
+  const handleDirectMark = async (lecture, statusVal) => {
+    setSubmittingId(lecture.id);
+    const deviceTimeStr = new Date().toISOString();
+    const todayDateStr = new Date().toLocaleDateString('en-CA');
+
+    let lat = null;
+    let lon = null;
+    try {
+      const pos = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 4000 });
+      });
+      lat = pos.coords.latitude;
+      lon = pos.coords.longitude;
+    } catch (err) {
+      console.warn('GPS coordinates skipped for direct mark:', err);
+    }
+
+    try {
+      await api.post('/attendance/records/mark/', {
+        lecture_slot_id: lecture.id,
+        date: todayDateStr,
+        status: statusVal,
+        device_time: deviceTimeStr,
+        remarks: `Marked ${statusVal} from Dashboard`,
+        latitude: lat,
+        longitude: lon
+      });
+      showToast(`Marked ${lecture.subject_details?.name} as ${statusVal}!`);
+      // Notify other components
+      window.dispatchEvent(new CustomEvent('attendanceMarked'));
+    } catch (err) {
+      const errorMsg = err.response?.data?.error || 'Failed to check-in.';
+      showToast(errorMsg, 'error');
+    } finally {
+      setSubmittingId(null);
+    }
   };
 
-  // Determine active and upcoming lectures
-  let activeLecture = null;
-  let nextLecture = null;
-  let scheduleStateMsg = '';
+  const getCurrentAndNextLecture = () => {
+    if (!todayLectures || todayLectures.length === 0) {
+      return { current: null, next: null };
+    }
 
-  const todayDayName = tickerTime.toLocaleDateString('en-US', { weekday: 'long' });
-  const isWeekend = todayDayName === 'Sunday' || todayDayName === 'Saturday';
+    const now = new Date();
+    const currentHours = String(now.getHours()).padStart(2, '0');
+    const currentMinutes = String(now.getMinutes()).padStart(2, '0');
+    const currentTimeStr = `${currentHours}:${currentMinutes}:00`;
 
-  if (isWeekend) {
-    scheduleStateMsg = 'Weekend! Enjoy your break and recharge.';
-  } else if (todayLectures.length === 0) {
-    scheduleStateMsg = 'You have no lectures scheduled for today.';
-  } else {
+    let current = null;
+    let next = null;
+
     const sorted = [...todayLectures].sort((a, b) => a.start_time.localeCompare(b.start_time));
-    
-    for (const lecture of sorted) {
-      const startDt = parseSlotTime(lecture.start_time);
-      const endDt = parseSlotTime(lecture.end_time);
 
-      if (tickerTime >= startDt && tickerTime <= endDt) {
-        activeLecture = lecture;
-      } else if (startDt > tickerTime && !nextLecture) {
-        nextLecture = lecture;
+    for (let i = 0; i < sorted.length; i++) {
+      const lec = sorted[i];
+      if (currentTimeStr >= lec.start_time && currentTimeStr <= lec.end_time) {
+        current = lec;
       }
     }
 
-    if (!activeLecture && !nextLecture) {
-      scheduleStateMsg = 'All scheduled lectures are completed for today!';
-    } else if (!activeLecture) {
-      const hour = tickerTime.getHours();
-      const min = tickerTime.getMinutes();
-      const currMin = hour * 60 + min;
-      if (currMin >= 750 && currMin <= 810) {
-        scheduleStateMsg = 'Lunch Break! Grab a bite and relax.';
-      } else {
-        scheduleStateMsg = 'Free Time! You have no active lecture right now.';
+    for (let i = 0; i < sorted.length; i++) {
+      const lec = sorted[i];
+      if (lec.start_time > currentTimeStr) {
+        next = lec;
+        break;
       }
     }
-  }
 
-  // Format countdown string
-  const getCountdownString = (targetTimeStr) => {
-    const targetDt = parseSlotTime(targetTimeStr);
-    const diffMs = targetDt - tickerTime;
-    if (diffMs <= 0) return 'starting now';
-    const totalMin = Math.round(diffMs / 60 / 1000);
-    if (totalMin > 60) {
-      const hrs = Math.floor(totalMin / 60);
-      const mins = totalMin % 60;
-      return `${hrs}h ${mins}m`;
-    }
-    return `${totalMin} mins`;
+    return { current, next };
   };
 
   const formatTime = (timeStr) => {
@@ -213,514 +178,362 @@ const Dashboard = () => {
     return `${displayHr}:${minutes} ${ampm}`;
   };
 
-  // Simulation calculations
-  const actualLectures = analytics?.total_lectures || 0;
-  const actualAttended = (analytics?.present_count || 0) + (analytics?.late_count || 0);
-  
-  const simulatedTotal = actualLectures + missCount + attendCount;
-  const simulatedAttended = actualAttended + attendCount;
-  const simulatedPct = simulatedTotal > 0 
-    ? Math.round((simulatedAttended / simulatedTotal) * 100 * 10) / 10 
-    : 100.0;
-
-  const goal = 75; // cut off
-
-  // Map calendar heatmap dates
-  const renderHeatmap = () => {
-    const today = new Date();
-    const cells = [];
-    const daysToShow = 28; // Last 4 weeks
-    
-    for (let i = daysToShow - 1; i >= 0; i--) {
-      const checkDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-      const checkDateStr = checkDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
-      
-      // Find matches in heatmap database
-      const match = analytics?.calendar_heatmap?.find(c => c.date === checkDateStr);
-      let color = 'rgba(0,0,0,0.06)'; // default gray
-      let title = `${checkDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}: No Class`;
-
-      if (match) {
-        if (match.status === 'Present') {
-          color = '#10b981';
-          title = `${match.subject}: Present`;
-        } else if (match.status === 'Late') {
-          color = '#fbbf24';
-          title = `${match.subject}: Late`;
-        } else {
-          color = '#ef4444';
-          title = `${match.subject}: Absent`;
-        }
-      }
-      
-      cells.push(
-        <Box 
-          key={checkDateStr} 
-          title={title}
-          sx={{ 
-            width: 20, 
-            height: 20, 
-            borderRadius: 0.5, 
-            bgcolor: color,
-            cursor: 'pointer',
-            transition: 'transform 0.2s',
-            '&:hover': { transform: 'scale(1.2)' }
-          }} 
-        />
-      );
-    }
-    return cells;
-  };
-
   if (loading) {
     return (
       <AppLayout>
-        <Box display="flex" justifyContent="center" py={12}>
-          <CircularProgress />
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3.5 }}>
+          <Skeleton variant="text" width="60%" height={40} />
+          <Skeleton variant="rectangular" height={150} sx={{ borderRadius: 3 }} />
+          <Skeleton variant="text" width="40%" height={30} />
+          <Skeleton variant="rectangular" height={180} sx={{ borderRadius: 3 }} />
         </Box>
       </AppLayout>
     );
   }
 
+  // Calculate if there are any subjects at warning status (below preferred goal)
+  const targetGoal = user?.goal || 75;
+  const warningSubjects = analytics?.subjects?.filter(sub => sub.percentage < targetGoal) || [];
+  const overallPercentage = analytics?.overall_attendance || 0;
+
+  const { current: currentLec, next: nextLec } = getCurrentAndNextLecture();
+
   return (
     <AppLayout>
-      <Box display="flex" flexDirection="column" gap={3}>
-        {/* Welcome Card */}
-        <Card
-          sx={{
-            background: (theme) => 
-              theme.palette.mode === 'light'
-                ? 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)'
-                : 'linear-gradient(135deg, #312e81 0%, #4f46e5 100%)',
-            color: '#ffffff',
-            boxShadow: '0 8px 32px rgba(30, 58, 138, 0.15)',
-            borderRadius: 3
-          }}
-        >
-          <CardContent sx={{ p: 4 }}>
-            <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} md={8}>
-                <Typography variant="h4" component="h1" fontWeight="bold" gutterBottom>
-                  Welcome back, {user?.full_name || 'Student'}!
-                </Typography>
-                <Typography variant="body1" sx={{ opacity: 0.9, mb: 2 }}>
-                  {user?.college_name || 'College Name'} • {user?.department || 'Department'} • Semester {user?.semester || 'Semester'} (Div {user?.division || 'Division'}, Roll No: {user?.roll_number || 'Roll No'})
-                </Typography>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <AutoAwesomeIcon sx={{ color: '#fbbf24' }} />
-                  <Typography variant="body2" sx={{ opacity: 0.95, fontWeight: 'medium' }}>
-                    {activeLecture 
-                      ? `Active Lecture: "${activeLecture.subject_details?.name}" is ongoing. Make sure to mark attendance!` 
-                      : nextLecture 
-                        ? `Next up is "${nextLecture.subject_details?.name}" in ${getCountdownString(nextLecture.start_time)}.` 
-                        : scheduleStateMsg}
-                  </Typography>
-                </Box>
-              </Grid>
-              <Grid item xs={12} md={4} sx={{ textAlign: { xs: 'left', md: 'right' } }}>
-                <Button 
-                  variant="contained" 
-                  onClick={() => navigate('/attendance')}
-                  sx={{ 
-                    bgcolor: '#fbbf24', 
-                    color: '#000000',
-                    fontWeight: 'bold',
-                    borderRadius: 2,
-                    '&:hover': { bgcolor: '#f59e0b' }
-                  }}
-                >
-                  Mark Attendance
-                </Button>
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
-
-        {/* PWA Queue & Sync & Notification Badges */}
-        {(offlineCount > 0 || unreadNotifications > 0) && (
-          <Box display="flex" gap={2} flexWrap="wrap">
-            {offlineCount > 0 && (
-              <Chip
-                icon={<SyncIcon sx={{ animation: 'spin 2s linear infinite', '@keyframes spin': { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } } }} />}
-                label={`${offlineCount} Offline Check-in(s) Queued. Click to Sync.`}
-                color="warning"
-                onClick={handleSyncOffline}
-                sx={{ fontWeight: 'bold', cursor: 'pointer' }}
-              />
-            )}
-            {unreadNotifications > 0 && (
-              <Chip
-                icon={<NotificationsActiveIcon />}
-                label={`You have ${unreadNotifications} unread notification(s)`}
-                color="error"
-                onClick={() => navigate('/notifications')}
-                sx={{ fontWeight: 'bold', cursor: 'pointer' }}
-              />
-            )}
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+      >
+        <Box sx={{ maxWidth: 800, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          
+          {/* Welcome Header */}
+          <Box>
+            <Typography variant="h5" fontWeight="bold">
+              Good Morning, {user?.full_name || user?.name || 'Mrunali'} 👋
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Here is your attendance overview for today.
+            </Typography>
           </Box>
-        )}
 
-        {/* Daily AI Briefing Card */}
-        <Card 
-          variant="outlined" 
-          sx={{ 
-            borderRadius: 3, 
-            bgcolor: 'action.hover', 
-            border: '1.5px dashed', 
-            borderColor: 'primary.light' 
-          }}
-        >
-          <CardContent sx={{ p: 2.5, display: 'flex', gap: 2, alignItems: 'center' }}>
-            <Avatar sx={{ bgcolor: 'primary.main', width: 44, height: 44 }}>
-              <AutoAwesomeIcon />
-            </Avatar>
-            <Box>
-              <Typography variant="subtitle2" fontWeight="bold" color="primary.main">
-                ☀️ Daily AI Briefing
-              </Typography>
-              <Typography variant="body2" mt={0.5}>
-                Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, {user?.full_name || 'Student'}! 
-                You have <strong>{todayLectures.length}</strong> lecture(s) scheduled for today. 
-                Your cumulative average is <strong>{analytics?.overall_attendance || 0}%</strong>.
-                {analytics?.subjects?.length > 0 && (() => {
-                  const lowest = [...analytics.subjects].sort((a,b) => a.percentage - b.percentage)[0];
-                  if (lowest && lowest.percentage < 75) {
-                    const attended = lowest.present + lowest.late;
-                    const nextPct = Math.round(((attended + 1) / (lowest.total + 1)) * 100 * 10) / 10;
-                    return ` Note: '${lowest.name}' (${lowest.code}) needs attention. Attending today's lecture will increase it to ${nextPct}%.`;
-                  }
-                  return '';
-                })()}
-              </Typography>
-            </Box>
-          </CardContent>
-        </Card>
-
-        {/* Dynamic Status / Active Lecture Card */}
-        {(activeLecture || nextLecture) && (
-          <Grid container spacing={3}>
-            {activeLecture && (
-              <Grid item xs={12} md={nextLecture ? 6 : 12}>
-                <Card 
-                  variant="outlined" 
-                  sx={{ 
-                    borderRadius: 3, 
-                    borderLeft: '6px solid #10b981', 
-                    bgcolor: 'success.light',
-                    color: 'success.contrastText' 
-                  }}
-                >
-                  <CardContent sx={{ py: 2.5 }}>
-                    <Box display="flex" alignItems="center" gap={1.5}>
-                      <SchoolIcon />
-                      <Box>
-                        <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 1, opacity: 0.8 }}>
-                          Current Lecture (Active Now)
-                        </Typography>
-                        <Typography variant="h6" fontWeight="bold">
-                          {activeLecture.subject_details?.name} ({activeLecture.subject_details?.code})
-                        </Typography>
-                        <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                          Ends in {getCountdownString(activeLecture.end_time)} ({formatTime(activeLecture.start_time)} - {formatTime(activeLecture.end_time)})
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            )}
-
-            {nextLecture && (
-              <Grid item xs={12} md={activeLecture ? 6 : 12}>
-                <Card 
-                  variant="outlined" 
-                  sx={{ 
-                    borderRadius: 3, 
-                    borderLeft: '6px solid #3b82f6', 
-                    bgcolor: 'info.light', 
-                    color: 'info.contrastText' 
-                  }}
-                >
-                  <CardContent sx={{ py: 2.5 }}>
-                    <Box display="flex" alignItems="center" gap={1.5}>
-                      <ScheduleIcon />
-                      <Box>
-                        <Typography variant="caption" sx={{ textTransform: 'uppercase', letterSpacing: 1, opacity: 0.8 }}>
-                          Next Lecture Scheduled
-                        </Typography>
-                        <Typography variant="h6" fontWeight="bold">
-                          {nextLecture.subject_details?.name} ({nextLecture.subject_details?.code})
-                        </Typography>
-                        <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                          Starts in {getCountdownString(nextLecture.start_time)} ({formatTime(nextLecture.start_time)} - {formatTime(nextLecture.end_time)})
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            )}
-          </Grid>
-        )}
-
-        {/* AI Insights Panel */}
-        <Card variant="outlined" sx={{ borderRadius: 3, borderLeft: '6px solid #8b5cf6' }}>
-          <CardContent>
-            <Box display="flex" alignItems="center" gap={1.5} mb={2}>
-              <AutoAwesomeIcon color="secondary" sx={{ fontSize: 24 }} />
-              <Typography variant="h6" fontWeight="bold">Smartttend AI Advice & Insights</Typography>
-            </Box>
-            
-            {aiLoading ? (
-              <Box display="flex" flexDirection="column" gap={1}>
-                <Skeleton width="95%" height={20} />
-                <Skeleton width="90%" height={20} />
-                <Skeleton width="60%" height={20} />
-              </Box>
-            ) : (
-              <Box sx={{ whiteSpace: 'pre-line' }}>
-                <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.6, fontSize: '0.95rem' }}>
-                  {aiInsights}
+          {/* Overall Attendance Circle/Card */}
+          <motion.div
+            whileHover={{ y: -3 }}
+            transition={{ duration: 0.2 }}
+          >
+            <Card
+              variant="outlined"
+              sx={{ borderRadius: 4, bgcolor: 'background.paper', p: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'box-shadow 0.2s', '&:hover': { boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)' } }}
+            >
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" fontWeight="bold">Overall Attendance</Typography>
+                <Typography variant="h2" fontWeight="bold" color="primary.main" sx={{ mt: 1 }}>
+                  <AnimatedCount value={overallPercentage} />
                 </Typography>
               </Box>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Stats Row */}
-        <Grid container spacing={3}>
-          {/* Card 1: Overall Percentage & Score */}
-          <Grid item xs={12} md={4}>
-            <Card sx={{ height: '100%', borderRadius: 3 }} variant="outlined">
-              <CardContent sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <Typography variant="h6" color="text.secondary" gutterBottom fontWeight="bold">
-                  Overall Attendance
-                </Typography>
-                <Box display="flex" justifyContent="center" alignItems="center" py={2} position="relative">
-                  <svg width="150" height="150" style={{ transform: 'rotate(-90deg)' }}>
-                    <circle cx="75" cy="75" r="60" fill="transparent" stroke="rgba(0,0,0,0.06)" strokeWidth="12" />
-                    <circle 
-                      cx="75" cy="75" r="60" 
-                      fill="transparent" 
-                      stroke={analytics?.overall_attendance >= goal ? '#10b981' : '#ef4444'} 
-                      strokeWidth="12" 
-                      strokeDasharray="377" 
-                      strokeDashoffset={377 - (377 * (analytics?.overall_attendance || 0)) / 100} 
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <Box position="absolute" display="flex" flexDirection="column" alignItems="center">
-                    <Typography variant="h3" fontWeight="bold">
-                      {analytics?.overall_attendance}%
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" fontWeight="bold">
-                      Goal: {goal}%
-                    </Typography>
-                  </Box>
-                </Box>
-                <Chip 
-                  label={`Consistency Score: ${analytics?.score}/100 (${analytics?.score_label})`} 
-                  color={analytics?.score_color}
-                  icon={<StarIcon />}
-                  sx={{ mt: 1, fontWeight: 'bold' }}
+              <Box sx={{ width: 80, height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CircularProgress
+                  variant="determinate"
+                  value={overallPercentage}
+                  size={80}
+                  thickness={6.5}
+                  color={overallPercentage >= targetGoal ? 'success' : 'error'}
                 />
-              </CardContent>
+              </Box>
             </Card>
+          </motion.div>
+
+          {/* Current & Next Lecture Grid */}
+          <Grid container spacing={2.5}>
+            <Grid item xs={12} sm={6}>
+              <motion.div
+                whileHover={{ y: -3 }}
+                transition={{ duration: 0.2 }}
+                style={{ height: '100%' }}
+              >
+                <Card
+                  variant="outlined"
+                  sx={{ borderRadius: 4, height: '100%', transition: 'box-shadow 0.2s', '&:hover': { boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)' } }}
+                >
+                  <CardContent sx={{ p: 2.5 }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight="bold" sx={{ letterSpacing: 1.1 }}>CURRENT LECTURE</Typography>
+                    {currentLec ? (
+                      <Box sx={{ mt: 1.5 }}>
+                        <Typography variant="body1" fontWeight="bold" color="text.primary">
+                          {currentLec.subject_details?.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="flex" alignItems="center" gap={0.5} sx={{ mt: 0.5 }}>
+                          <AccessTimeIcon sx={{ fontSize: 13 }} />
+                          {formatTime(currentLec.start_time.substring(0, 5))} - {formatTime(currentLec.end_time.substring(0, 5))} &bull; Room {currentLec.classroom || 'TBD'}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+                        No active lecture right now.
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <motion.div
+                whileHover={{ y: -3 }}
+                transition={{ duration: 0.2 }}
+                style={{ height: '100%' }}
+              >
+                <Card
+                  variant="outlined"
+                  sx={{ borderRadius: 4, height: '100%', transition: 'box-shadow 0.2s', '&:hover': { boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)' } }}
+                >
+                  <CardContent sx={{ p: 2.5 }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight="bold" sx={{ letterSpacing: 1.1 }}>NEXT LECTURE</Typography>
+                    {nextLec ? (
+                      <Box sx={{ mt: 1.5 }}>
+                        <Typography variant="body1" fontWeight="bold" color="text.primary">
+                          {nextLec.subject_details?.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="flex" alignItems="center" gap={0.5} sx={{ mt: 0.5 }}>
+                          <AccessTimeIcon sx={{ fontSize: 13 }} />
+                          {formatTime(nextLec.start_time.substring(0, 5))} - {formatTime(nextLec.end_time.substring(0, 5))} &bull; Room {nextLec.classroom || 'TBD'}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+                        No more lectures remaining today.
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </Grid>
           </Grid>
 
-          {/* Card 2: Streaks summary */}
-          <Grid item xs={12} md={4}>
-            <Card sx={{ height: '100%', borderRadius: 3 }} variant="outlined">
-              <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Typography variant="h6" color="text.secondary" fontWeight="bold">
-                  Attendance Streaks
-                </Typography>
-
-                <Box display="flex" justifyContent="space-between" alignItems="center" p={1.5} component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-                  <Typography variant="body2" color="text.secondary">Current Active Streak</Typography>
-                  <Chip label={`${analytics?.current_streak} Classes`} color="success" size="small" sx={{ fontWeight: 'bold' }} />
-                </Box>
-
-                <Box display="flex" justifyContent="space-between" alignItems="center" p={1.5} component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-                  <Typography variant="body2" color="text.secondary">Longest Present Streak</Typography>
-                  <Chip label={`${analytics?.longest_present_streak} Classes`} color="primary" size="small" sx={{ fontWeight: 'bold' }} />
-                </Box>
-
-                <Box display="flex" justifyContent="space-between" alignItems="center" p={1.5} component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-                  <Typography variant="body2" color="text.secondary">Longest Absence Streak</Typography>
-                  <Chip label={`${analytics?.longest_absent_streak} Classes`} color="error" size="small" sx={{ fontWeight: 'bold' }} />
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Card 3: Heatmap calendar */}
-          <Grid item xs={12} md={4}>
-            <Card sx={{ height: '100%', borderRadius: 3 }} variant="outlined">
-              <CardContent>
-                <Typography variant="h6" color="text.secondary" fontWeight="bold" mb={2}>
-                  Consistency Calendar
-                </Typography>
-                <Box display="flex" gap={1.2} flexWrap="wrap" sx={{ width: '100%', py: 1 }}>
-                  {renderHeatmap()}
-                </Box>
-                <Box display="flex" gap={2} mt={3} justifyContent="space-between" flexWrap="wrap">
-                  <Box display="flex" gap={0.5} alignItems="center">
-                    <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: '#10b981' }} />
-                    <Typography variant="caption">Present</Typography>
-                  </Box>
-                  <Box display="flex" gap={0.5} alignItems="center">
-                    <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: '#fbbf24' }} />
-                    <Typography variant="caption">Late</Typography>
-                  </Box>
-                  <Box display="flex" gap={0.5} alignItems="center">
-                    <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: '#ef4444' }} />
-                    <Typography variant="caption">Absent</Typography>
-                  </Box>
-                  <Box display="flex" gap={0.5} alignItems="center">
-                    <Box sx={{ width: 12, height: 12, borderRadius: 0.5, bgcolor: 'rgba(0,0,0,0.06)' }} />
-                    <Typography variant="caption">No Class</Typography>
-                  </Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-
-        {/* Charts Hub */}
-        <Grid container spacing={3}>
-          {/* Chart 1: Subject comparison BarChart */}
-          <Grid item xs={12} md={7}>
-            <Card variant="outlined" sx={{ borderRadius: 3, height: 350 }}>
-              <CardContent sx={{ height: '100%' }}>
-                <Typography variant="subtitle1" fontWeight="bold" mb={2}>Subject Comparison</Typography>
-                <ResponsiveContainer width="100%" height="80%">
-                  <BarChart data={analytics?.subjects || []} margin={{ bottom: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="code" />
-                    <YAxis domain={[0, 100]} />
-                    <Tooltip formatter={(value) => [`${value}%`, 'Attendance']} />
-                    <Bar dataKey="percentage" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Chart 2: Monthly trend LineChart */}
-          <Grid item xs={12} md={5}>
-            <Card variant="outlined" sx={{ borderRadius: 3, height: 350 }}>
-              <CardContent sx={{ height: '100%' }}>
-                <Typography variant="subtitle1" fontWeight="bold" mb={2}>Attendance Trends</Typography>
-                {analytics?.monthly_distribution?.length === 0 ? (
-                  <Box display="flex" justify="center" align="center" height="70%">
-                    <Typography variant="body2" color="text.secondary">No historical trend data yet</Typography>
-                  </Box>
-                ) : (
-                  <ResponsiveContainer width="100%" height="80%">
-                    <LineChart data={analytics?.monthly_distribution || []}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis domain={[0, 100]} />
-                      <Tooltip formatter={(value) => [`${value}%`, 'Attendance']} />
-                      <Line type="monotone" dataKey="percentage" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 5 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-
-        {/* Scenario Simulator & Subject Grid */}
-        <Grid container spacing={3}>
-          {/* Left: Simulator */}
-          <Grid item xs={12} md={5}>
-            <Card variant="outlined" sx={{ borderRadius: 3, height: '100%' }}>
-              <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <ShowChartIcon color="primary" />
-                  <Typography variant="subtitle1" fontWeight="bold">Semester Simulator</Typography>
-                </Box>
+          {/* Today's Lectures Section */}
+          <Box>
+            <Typography variant="subtitle1" fontWeight="bold" mb={2}>
+              Today's Schedule
+            </Typography>
+            
+            {todayLectures.length === 0 ? (
+              <Paper variant="outlined" sx={{ p: 4, textAlign: 'center', borderRadius: 3 }}>
                 <Typography variant="body2" color="text.secondary">
-                  Drag the sliders below to simulate hypothetical check-in outcomes. Percentages refresh in real-time without database writes.
+                  No classes scheduled for today. Free day!
                 </Typography>
+              </Paper>
+            ) : (
+              <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
+                <List disablePadding>
+                  {todayLectures.map((lecture, index) => {
+                    const isMarked = lecture.attendance_status !== null;
+                    const isSubmitting = submittingId === lecture.id;
 
-                <Box>
-                  <Typography variant="body2" fontWeight="bold" mb={1}>Attend upcoming classes: +{attendCount}</Typography>
-                  <Slider 
-                    value={attendCount} 
-                    min={0} 
-                    max={15} 
-                    onChange={(e, val) => setAttendCount(val)} 
-                    valueLabelDisplay="auto" 
-                  />
-                </Box>
-
-                <Box>
-                  <Typography variant="body2" fontWeight="bold" mb={1} color="error.main">Miss upcoming classes: -{missCount}</Typography>
-                  <Slider 
-                    value={missCount} 
-                    min={0} 
-                    max={15} 
-                    onChange={(e, val) => setMissCount(val)} 
-                    valueLabelDisplay="auto"
-                    color="error"
-                  />
-                </Box>
-
-                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'action.hover' }} variant="outlined">
-                  <Typography variant="body2" color="text.secondary">Simulated Final Percentage</Typography>
-                  <Typography variant="h4" fontWeight="bold" sx={{ color: simulatedPct >= 75 ? 'success.main' : 'error.main', mt: 0.5 }}>
-                    {simulatedPct}%
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {simulatedPct >= 75 ? 'Eligible for Exams ✓' : 'Below 75% limit ✗'}
-                  </Typography>
-                </Paper>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Right: Subjects list */}
-          <Grid item xs={12} md={7}>
-            <Card variant="outlined" sx={{ borderRadius: 3, height: '100%' }}>
-              <CardContent>
-                <Typography variant="subtitle1" fontWeight="bold" mb={2}>Subject Details (Click to view analysis)</Typography>
-                <Grid container spacing={2}>
-                  {analytics?.subjects?.map((sub) => (
-                    <Grid item xs={12} sm={6} key={sub.id}>
-                      <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                        <CardActionArea onClick={() => navigate(`/subjects/${sub.id}`)}>
-                          <Box sx={{ p: 2, borderLeft: `5px solid ${sub.color}` }}>
-                            <Box display="flex" justify="space-between" mb={1} alignItems="center">
-                              <Typography variant="body2" fontWeight="bold">{sub.code}</Typography>
-                              <Typography variant="body2" fontWeight="bold" color={sub.percentage >= goal ? 'success.main' : 'error.main'}>
-                                {sub.percentage}%
+                    return (
+                      <Box key={lecture.id}>
+                        <ListItem sx={{ py: 2.5, px: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                          <Box display="flex" gap={2} alignItems="center">
+                            <Typography variant="subtitle2" color="text.secondary" sx={{ minWidth: 65, fontWeight: 'bold' }}>
+                              {formatTime(lecture.start_time.substring(0, 5))}
+                            </Typography>
+                            <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+                            <Box>
+                              <Typography variant="body1" fontWeight="bold">
+                                {lecture.subject_details?.name}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {lecture.lecture_type} • Room {lecture.classroom || 'TBD'}
                               </Typography>
                             </Box>
-                            <Typography variant="caption" color="text.secondary" display="block" noWrap>
+                          </Box>
+                          
+                          <Box>
+                            {isMarked ? (
+                              <Chip
+                                label={lecture.attendance_status}
+                                color={
+                                  lecture.attendance_status === 'Present' ? 'success' :
+                                  lecture.attendance_status === 'Absent' ? 'error' :
+                                  lecture.attendance_status === 'Cancelled' ? 'warning' : 'default'
+                                }
+                                size="medium"
+                                icon={<CheckCircleIcon />}
+                                sx={{ fontWeight: 'bold', borderRadius: 2 }}
+                              />
+                            ) : (
+                              <Box display="flex" gap={1}>
+                                {isSubmitting ? (
+                                  <CircularProgress size={20} sx={{ mx: 2 }} />
+                                ) : (
+                                  ['Present', 'Absent', 'Cancelled'].map((status) => (
+                                    <Chip
+                                      key={status}
+                                      label={status}
+                                      onClick={() => handleDirectMark(lecture, status)}
+                                      color={status === 'Present' ? 'success' : status === 'Absent' ? 'error' : 'warning'}
+                                      variant="outlined"
+                                      sx={{
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer',
+                                        borderRadius: 2,
+                                        '&:hover': { bgcolor: 'action.hover' }
+                                      }}
+                                    />
+                                  ))
+                                )}
+                              </Box>
+                            )}
+                          </Box>
+                        </ListItem>
+                        {index < todayLectures.length - 1 && <Divider />}
+                      </Box>
+                    );
+                  })}
+                </List>
+              </Paper>
+            )}
+          </Box>
+
+          {/* Subject Attendance Section */}
+          <Box>
+            <Typography variant="subtitle1" fontWeight="bold" mb={2}>
+              Subject Attendance
+            </Typography>
+            <Paper variant="outlined" sx={{ p: 3, borderRadius: 3, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+              {analytics?.subjects?.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" align="center">
+                  No subject tracking setup yet. Timetable needs upload.
+                </Typography>
+              ) : (
+                analytics?.subjects?.map((sub) => {
+                  const subColor = sub.color || '#3b82f6';
+                  const isUnderGoal = sub.percentage < targetGoal;
+                  return (
+                    <motion.div
+                      key={sub.id}
+                      whileHover={{ scale: 1.008, x: 2 }}
+                      transition={{ duration: 0.15 }}
+                    >
+                      <Box
+                        onClick={() => navigate(`/subjects/${sub.id}`)}
+                        sx={{
+                          cursor: 'pointer',
+                          p: 1.5,
+                          borderRadius: 2,
+                          '&:hover': { bgcolor: 'action.hover' },
+                          transition: 'background-color 0.2s'
+                        }}
+                      >
+                        <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.8}>
+                          <Box>
+                            <Typography variant="body2" fontWeight="bold">
                               {sub.name}
                             </Typography>
-                            <Box mt={1.5}>
-                              <LinearProgress 
-                                variant="determinate" 
-                                value={sub.percentage} 
-                                color={sub.percentage >= goal ? 'success' : 'error'}
-                                sx={{ height: 5, borderRadius: 2 }}
-                              />
-                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                              {sub.code} • Attended: {sub.present + sub.late}/{sub.total}
+                            </Typography>
                           </Box>
-                        </CardActionArea>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      </Box>
+                          <Typography variant="body2" fontWeight="bold" color={isUnderGoal ? 'error.main' : 'text.primary'}>
+                            {sub.percentage}%
+                          </Typography>
+                        </Box>
+                        <LinearProgress
+                          variant="determinate"
+                          value={sub.percentage}
+                          sx={{
+                            height: 8,
+                            borderRadius: 4,
+                            bgcolor: 'action.selected',
+                            '& .MuiLinearProgress-bar': {
+                              bgcolor: subColor,
+                              borderRadius: 4
+                            }
+                          }}
+                        />
+                      </Box>
+                    </motion.div>
+                  );
+                })
+              )}
+            </Paper>
+          </Box>
+
+          {/* Bottom AI Suggestion/Reminder Area */}
+          <Box>
+            {warningSubjects.length > 0 ? (
+              // Show alert box if subjects are below target goal
+              <motion.div
+                whileHover={{ scale: 1.005 }}
+              >
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 2,
+                    borderRadius: 3,
+                    bgcolor: 'error.light',
+                    color: 'error.contrastText',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 2
+                  }}
+                >
+                  <Box display="flex" alignItems="center" gap={1.5}>
+                    <WarningIcon sx={{ color: 'error.main' }} />
+                    <Typography variant="body2" fontWeight="medium" color="error.dark">
+                      <strong>⚠ {warningSubjects[0].name} ({warningSubjects[0].percentage}%)</strong> is below your {targetGoal}% target. Need next {Math.ceil(((targetGoal/100) * warningSubjects[0].total - (warningSubjects[0].present + warningSubjects[0].late)) / (1 - (targetGoal/100)))} lectures.
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="error"
+                    onClick={() => window.dispatchEvent(new CustomEvent('openAiDrawer'))}
+                    sx={{ fontWeight: 'bold', textTransform: 'none', borderRadius: 2 }}
+                  >
+                    View
+                  </Button>
+                </Paper>
+              </motion.div>
+            ) : (
+              // Default AI Advice card (one line suggestion)
+              <motion.div
+                whileHover={{ scale: 1.005 }}
+              >
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 2,
+                    borderRadius: 3,
+                    bgcolor: 'action.hover',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 2
+                  }}
+                >
+                  <Box display="flex" alignItems="center" gap={1.5}>
+                    <AutoAwesomeIcon color="secondary" sx={{ fontSize: 20 }} />
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>AI Suggestion:</strong> {aiInsights ? aiInsights.split('.')[0] + '.' : 'Attend today\'s lectures to stay on track.'}
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="primary"
+                    onClick={() => window.dispatchEvent(new CustomEvent('openAiDrawer'))}
+                    sx={{ fontWeight: 'bold', textTransform: 'none', borderRadius: 2 }}
+                  >
+                    Open AI
+                  </Button>
+                </Paper>
+              </motion.div>
+            )}
+          </Box>
+
+        </Box>
+      </motion.div>
     </AppLayout>
   );
 };

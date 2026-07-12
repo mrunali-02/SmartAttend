@@ -7,11 +7,22 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'email', 'full_name', 'college_name', 'department',
-            'semester', 'division', 'roll_number', 'batch',
-            'profile_photo', 'date_joined'
+            'id', 'email', 'full_name', 'name', 'college_name', 'department',
+            'semester', 'division', 'roll_number', 'batch', 'student_id',
+            'prn_number', 'academic_year', 'profile_photo', 'profile_photo_url',
+            'mobile_number', 'date_of_birth', 'gender', 'degree', 'current_year',
+            'student_status', 'university', 'course', 'class_teacher',
+            'teacher_guardian', 'parent_contact',
+            'created_at', 'updated_at', 'date_joined'
         ]
-        read_only_fields = ['id', 'email', 'date_joined']
+        read_only_fields = ['id', 'email', 'profile_photo_url', 'created_at', 'updated_at', 'date_joined']
+
+    def update(self, instance, validated_data):
+        if 'name' in validated_data and validated_data['name']:
+            validated_data['full_name'] = validated_data['name']
+        elif 'full_name' in validated_data and validated_data['full_name']:
+            validated_data['name'] = validated_data['full_name']
+        return super().update(instance, validated_data)
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})

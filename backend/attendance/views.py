@@ -6,7 +6,7 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils.dateparse import parse_datetime
-from ai.models import AIMemory
+from ai.models import AIPreferences
 
 from .models import Attendance
 from .serializers import AttendanceSerializer
@@ -88,7 +88,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             return Response({"error": "Lecture slot not found."}, status=status.HTTP_404_NOT_FOUND)
 
         # Geofencing coordinates validation
-        memory, _ = AIMemory.objects.get_or_create(user=request.user)
+        memory, _ = AIPreferences.objects.get_or_create(user=request.user)
         if memory.geofencing_enabled:
             lat = request.data.get('latitude')
             lon = request.data.get('longitude')
@@ -191,6 +191,103 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             "record": serializer.data
         }, status=status.HTTP_201_CREATED)
 
+    @action(detail=False, methods=['POST'], url_path='backfill')
+    def backfill_attendance(self, request):
+        """
+        Bulk records/updates attendance for a past date or multiple dates (backfill).
+        Payload:
+        - date: YYYY-MM-DD (optional, single day)
+        - is_holiday: boolean (optional, single day)
+        - records: list of slot records (optional, single day)
+        - days: list of day items (optional, bulk week/days batch):
+            - date: YYYY-MM-DD
+            - is_holiday: boolean
+            - records: list of objects:
+                - lecture_slot_id: ID
+                - status: Present, Absent, Late, Cancelled, Holiday
+        """
+        days_data = request.data.get('days')
+
+        # Fallback to single day payload format if days is not supplied
+        if not days_data:
+            single_date = request.data.get('date')
+            if single_date:
+                days_data = [{
+                    'date': single_date,
+                    'is_holiday': request.data.get('is_holiday', False),
+                    'records': request.data.get('records', [])
+                }]
+            else:
+                return Response({"error": "Either date or days is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        subjects_affected = set()
+
+        for day_item in days_data:
+            date_str = day_item.get('date')
+            is_holiday = day_item.get('is_holiday', False)
+            records_data = day_item.get('records', [])
+
+            if not date_str:
+                continue
+
+            try:
+                target_date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                continue
+
+            day_of_week = target_date.strftime('%A')
+            slots = LectureSlot.objects.filter(user=request.user, day=day_of_week)
+
+            if is_holiday:
+                for slot in slots:
+                    Attendance.objects.update_or_create(
+                        student=request.user,
+                        lecture_slot=slot,
+                        date=target_date,
+                        defaults={
+                            'subject': slot.subject,
+                            'status': 'Holiday',
+                            'remarks': 'Day marked as holiday'
+                        }
+                    )
+                    subjects_affected.add(slot.subject.id)
+            else:
+                for rec in records_data:
+                    slot_id = rec.get('lecture_slot_id')
+                    status_val = rec.get('status')
+
+                    if not slot_id or not status_val:
+                        continue
+
+                    try:
+                        slot = LectureSlot.objects.get(id=slot_id, user=request.user)
+                    except LectureSlot.DoesNotExist:
+                        continue
+
+                    # Create or update record
+                    Attendance.objects.update_or_create(
+                        student=request.user,
+                        lecture_slot=slot,
+                        date=target_date,
+                        defaults={
+                            'subject': slot.subject,
+                            'status': status_val,
+                            'remarks': 'Backfilled past record'
+                        }
+                    )
+                    subjects_affected.add(slot.subject.id)
+
+        # Trigger manual update stats trigger for subjects affected to guarantee database accuracy
+        for sub_id in subjects_affected:
+            try:
+                sub = Subject.objects.get(id=sub_id)
+                from .signals import update_subject_stats
+                update_subject_stats(sub)
+            except Subject.DoesNotExist:
+                pass
+
+        return Response({"detail": "Backfilled attendance successfully."})
+
     @action(detail=False, methods=['GET'], url_path='summary')
     def summary(self, request):
         """
@@ -202,6 +299,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         total_present = 0
         total_absent = 0
         total_late = 0
+        total_cancelled = 0
         
         subject_summaries = []
         
@@ -210,6 +308,8 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             total_present += sub.present_count
             total_absent += sub.absent_count
             total_late += sub.late_count
+            sub_cancelled = getattr(sub, 'cancelled_count', 0)
+            total_cancelled += sub_cancelled
             
             sub_attended = sub.present_count + sub.late_count
             sub_pct = round((sub_attended / sub.total_lectures * 100), 2) if sub.total_lectures > 0 else 100.0
@@ -225,6 +325,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 "present_count": sub.present_count,
                 "absent_count": sub.absent_count,
                 "late_count": sub.late_count,
+                "cancelled_count": sub_cancelled,
                 "percentage": sub_pct
             })
             
@@ -257,6 +358,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             "present_count": total_present,
             "absent_count": total_absent,
             "late_count": total_late,
+            "cancelled_count": total_cancelled,
             "attendance_goal": attendance_goal,
             "consecutive_needed": consecutive_needed,
             "today_lectures_count": today_lectures_count,

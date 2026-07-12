@@ -7,6 +7,8 @@ class Attendance(models.Model):
         ('Present', 'Present'),
         ('Absent', 'Absent'),
         ('Late', 'Late'),
+        ('Cancelled', 'Cancelled'),
+        ('Holiday', 'Holiday'),
     ]
 
     student = models.ForeignKey(

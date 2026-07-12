@@ -4,9 +4,9 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 from rest_framework import status
 
-from .models import AIMemory, ChatMessage
+from .models import AIPreferences, Conversation, ChatMessage
 from timetable.models import Subject, LectureSlot
-from ai.chatbot_views import generate_offline_chat_fallback
+from ai.chatbot_views import generate_offline_fallback
 
 User = get_user_model()
 
@@ -25,12 +25,11 @@ class AIChatbotTestCase(APITestCase):
             batch='2026'
         )
         
-        # Create AI Memory settings
-        self.memory = AIMemory.objects.create(
+        # Create AI preferences settings
+        self.prefs = AIPreferences.objects.create(
             user=self.user,
             preferred_goal=80,
-            reminder_time_mins=10,
-            geofencing_enabled=True
+            response_style='Friendly'
         )
 
         # Create subject
@@ -41,65 +40,71 @@ class AIChatbotTestCase(APITestCase):
             faculty_name='Prof. Vikas',
             credits=3,
             semester='6',
-            division='B'
+            division='B',
+            total_lectures=10,
+            present_count=6,
+            absent_count=4
         )
 
-    def test_settings_memory_endpoints(self):
+    def test_settings_preferences_endpoints(self):
         self.client.force_authenticate(user=self.user)
         
         # Test GET settings memory
         response = self.client.get('/api/ai/memory/')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['preferred_goal'], 80)
-        self.assertEqual(response.data['reminder_time_mins'], 10)
-        self.assertTrue(response.data['geofencing_enabled'])
+        self.assertEqual(response.data['response_style'], 'Friendly')
 
         # Test PUT settings memory update
         response = self.client.put('/api/ai/memory/', {
             'preferred_goal': 85,
-            'reminder_time_mins': 20,
-            'geofencing_enabled': False
+            'response_style': 'Concise',
+            'enable_suggestions': False
         })
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
-        self.memory.refresh_from_db()
-        self.assertEqual(self.memory.preferred_goal, 85)
-        self.assertEqual(self.memory.reminder_time_mins, 20)
-        self.assertFalse(self.memory.geofencing_enabled)
+        self.prefs.refresh_from_db()
+        self.assertEqual(self.prefs.preferred_goal, 85)
+        self.assertEqual(self.prefs.response_style, 'Concise')
+        self.assertFalse(self.prefs.enable_suggestions)
 
-    def test_chatbot_messages_saving_in_db(self):
+    def test_chatbot_conversations_creation_and_history(self):
         self.client.force_authenticate(user=self.user)
         
-        # Verify initial messages is 0
-        self.assertEqual(ChatMessage.objects.filter(user=self.user).count(), 0)
+        # Verify initial conversations is 0
+        self.assertEqual(Conversation.objects.filter(user=self.user).count(), 0)
 
-        # Send query to AIChatView
+        # Send query to AIChatView (should auto-create a conversation thread)
         response = self.client.post('/api/ai/chat/', {
             'message': 'Can I skip software engineering classes?'
         })
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("response", response.data)
         
-        # Verify that 2 messages (1 user, 1 AI model reply) were saved in db
-        messages = ChatMessage.objects.filter(user=self.user).order_by('timestamp')
+        # Verify conversation thread was created
+        self.assertEqual(Conversation.objects.filter(user=self.user).count(), 1)
+        conv = Conversation.objects.first()
+        
+        # Verify messages inside conversation
+        messages = conv.messages.all().order_by('timestamp')
         self.assertEqual(messages.count(), 2)
         self.assertEqual(messages[0].role, 'user')
         self.assertEqual(messages[1].role, 'model')
-        self.assertEqual(messages[0].message, 'Can I skip software engineering classes?')
+        
+        # Rename conversation thread
+        response = self.client.put(f'/api/ai/conversations/{conv.id}/', {
+            'title': 'SE Skip Discussion'
+        })
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        conv.refresh_from_db()
+        self.assertEqual(conv.title, 'SE Skip Discussion')
+
+        # Delete conversation thread
+        response = self.client.delete(f'/api/ai/conversations/{conv.id}/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Conversation.objects.filter(user=self.user).count(), 0)
 
     def test_local_offline_chat_fallback(self):
-        stats = {
-            "name": "Mrunali Patel",
-            "goal": 80,
-            "low_subjects": ["CS304 (72%)"],
-            "tomorrow_slots": 2
-        }
-        
         # Test bunk query
-        reply = generate_offline_chat_fallback("can I skip class?", stats)
-        self.assertIn("should NOT skip classes", reply)
-        self.assertIn("CS304 (72%)", reply)
-
-        # Test schedule query
-        reply = generate_offline_chat_fallback("what lectures do I have tomorrow?", stats)
-        self.assertIn("2 lecture(s)", reply)
+        reply = generate_offline_fallback("can I skip class?", self.user, 80, [self.subject])
+        self.assertIn("against skipping", reply)

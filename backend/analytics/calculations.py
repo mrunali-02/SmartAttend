@@ -128,7 +128,7 @@ def get_weekly_attendance_distribution(user):
     """
     Returns weekly attendance statistics (average present, late, absent per day of the week)
     """
-    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
     distribution = {day: {"Present": 0, "Late": 0, "Absent": 0, "Total": 0} for day in days}
     
     records = Attendance.objects.filter(student=user)
@@ -136,8 +136,9 @@ def get_weekly_attendance_distribution(user):
     for r in records:
         day_name = r.date.strftime('%A')
         if day_name in distribution:
-            distribution[day_name][r.status] += 1
-            distribution[day_name]["Total"] += 1
+            if r.status in distribution[day_name]:
+                distribution[day_name][r.status] += 1
+                distribution[day_name]["Total"] += 1
             
     return [
         {
@@ -165,8 +166,9 @@ def get_monthly_attendance_distribution(user):
         if month_key not in monthly_data:
             monthly_data[month_key] = {"Present": 0, "Late": 0, "Absent": 0, "Total": 0}
             
-        monthly_data[month_key][r.status] += 1
-        monthly_data[month_key]["Total"] += 1
+        if r.status in monthly_data[month_key]:
+            monthly_data[month_key][r.status] += 1
+            monthly_data[month_key]["Total"] += 1
         
     chart_data = []
     for month_label, counts in monthly_data.items():

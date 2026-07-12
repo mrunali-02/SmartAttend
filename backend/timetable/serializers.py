@@ -50,7 +50,8 @@ class LectureSlotSerializer(serializers.ModelSerializer):
         model = LectureSlot
         fields = [
             'id', 'user', 'subject', 'subject_details', 'day',
-            'start_time', 'end_time', 'lecture_type', 'attendance_status'
+            'start_time', 'end_time', 'lecture_type', 'building', 'classroom',
+            'attendance_status'
         ]
 
     def get_attendance_status(self, obj):

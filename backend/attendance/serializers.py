@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Attendance
+from .models import Attendance, Notification
 from timetable.serializers import SubjectSerializer, LectureSlotSerializer
 
 class AttendanceSerializer(serializers.ModelSerializer):
@@ -16,3 +16,12 @@ class AttendanceSerializer(serializers.ModelSerializer):
             'timestamp', 'device_time', 'time_difference', 'remarks'
         ]
         read_only_fields = ['student', 'subject', 'timestamp', 'time_difference']
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = [
+            'id', 'student', 'title', 'message', 'category', 'priority',
+            'is_read', 'timestamp'
+        ]
+        read_only_fields = ['student', 'timestamp']

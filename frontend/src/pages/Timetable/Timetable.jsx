@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AppLayout from '../../components/layout/AppLayout';
 import api from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import {
   Box,
   Card,
@@ -19,77 +20,98 @@ import {
   MenuItem,
   CircularProgress,
   Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Snackbar,
   Alert,
   Chip,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  CardActionArea,
-  Divider
+  Divider,
+  List,
+  ListItem
 } from '@mui/material';
-import MenuBookIcon from '@mui/icons-material/MenuBook';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
-import ViewListIcon from '@mui/icons-material/ViewList';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import CheckIcon from '@mui/icons-material/Check';
+import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
 
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const LECTURE_TYPES = ['Theory', 'Practical', 'Lab'];
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const LECTURE_TYPES = ['Theory', 'Practical', 'Lab', 'Tutorial'];
 
 const Timetable = () => {
+  const { user } = useAuth();
+  
+  // Two tabs: 0 = Calendar View, 1 = Upload & Subjects list
+  const [activeView, setActiveView] = useState(0);
+  
+  // Selected weekday for the timeline (default to Monday or current day if weekday)
+  const getCurrentDay = () => {
+    const dayIndex = new Date().getDay();
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const currentName = dayNames[dayIndex];
+    return DAYS.includes(currentName) ? currentName : 'Monday';
+  };
+  const [selectedDay, setSelectedDay] = useState(getCurrentDay());
+
   const [subjects, setSubjects] = useState([]);
   const [timetable, setTimetable] = useState({
-    Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [], Saturday: []
+    Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: []
   });
   const [loading, setLoading] = useState(true);
-  const [viewTab, setViewTab] = useState(0); // 0 = Calendar/List, 1 = Table, 2 = Import
 
-  // Snackbar Notification State
-  const [notification, setNotification] = useState({ open: false, message: '', severity: 'success' });
-
-  // Dialog Modals State
-  const [subjectModal, setSubjectModal] = useState({ open: false, mode: 'create', data: null });
-  const [lectureModal, setLectureModal] = useState({ open: false, mode: 'create', data: null });
+  // Modals state
+  const [subjectModal, setSubjectModal] = useState({ open: false });
+  const [lectureModal, setLectureModal] = useState({ open: false, data: null });
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, type: '', id: null });
 
-  // OCR Timetable Import wizard state
+  // OCR upload state
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [draftSlots, setDraftSlots] = useState([]);
+  const [lowConfidence, setLowConfidence] = useState(false);
 
-  // Input Forms State
+  // Forms state
   const [subjectForm, setSubjectForm] = useState({
-    name: '', code: '', faculty_name: '', credits: 3, semester: '', division: '', batch: '', color: '#3b82f6'
-  });
-  const [lectureForm, setLectureForm] = useState({
-    subject: '', day: 'Monday', start_time: '09:00', end_time: '10:00', lecture_type: 'Theory'
+    subject_name: '',
+    subject_code: '',
+    faculty_name: '',
+    building: '',
+    classroom: '',
+    day: 'Monday',
+    start_time: '09:00',
+    end_time: '10:00',
+    lecture_type: 'Theory',
+    credits: 3,
+    color: '#3b82f6'
   });
 
-  const showNotification = (message, severity = 'success') => {
-    setNotification({ open: true, message, severity });
+  const [lectureForm, setLectureForm] = useState({
+    subject: '',
+    day: 'Monday',
+    start_time: '09:00',
+    end_time: '10:00',
+    lecture_type: 'Theory',
+    building: '',
+    classroom: ''
+  });
+
+  const [toast, setToast] = useState({ open: false, message: '', severity: 'success' });
+
+  const showToast = (message, severity = 'success') => {
+    setToast({ open: true, message, severity });
   };
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const subRes = await api.get('/timetable/subjects/');
-      setSubjects(subRes.data);
+      setSubjects(subRes.data || []);
 
       const ttRes = await api.get('/timetable/slots/weekly/');
-      setTimetable(ttRes.data);
+      setTimetable(ttRes.data || {
+        Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: []
+      });
     } catch (err) {
-      showNotification('Failed to fetch timetable data.', 'error');
+      showToast('Failed to load timetable.', 'error');
     } finally {
       setLoading(false);
     }
@@ -99,75 +121,60 @@ const Timetable = () => {
     fetchData();
   }, []);
 
-  // Subject Handlers
-  const handleOpenSubjectModal = (mode, data = null) => {
-    if (mode === 'edit' && data) {
-      setSubjectForm({
-        name: data.name,
-        code: data.code,
-        faculty_name: data.faculty_name,
-        credits: data.credits,
-        semester: data.semester,
-        division: data.division,
-        batch: data.batch || '',
-        color: data.color
-      });
-      setSubjectModal({ open: true, mode: 'edit', data });
-    } else {
-      setSubjectForm({
-        name: '', code: '', faculty_name: '', credits: 3, semester: '1', division: 'A', batch: '', color: '#3b82f6'
-      });
-      setSubjectModal({ open: true, mode: 'create', data: null });
-    }
+  const handleOpenSubjectModal = () => {
+    setSubjectForm({
+      subject_name: '',
+      subject_code: '',
+      faculty_name: '',
+      building: '',
+      classroom: '',
+      day: selectedDay,
+      start_time: '09:00',
+      end_time: '10:00',
+      lecture_type: 'Theory',
+      credits: 3,
+      color: '#3b82f6'
+    });
+    setSubjectModal({ open: true });
   };
 
   const handleSaveSubject = async () => {
-    if (!subjectForm.name || !subjectForm.code || !subjectForm.faculty_name) {
-      showNotification('Please fill in all required subject fields.', 'warning');
+    const { subject_name, faculty_name, day, start_time, end_time } = subjectForm;
+    if (!subject_name || !faculty_name || !day || !start_time || !end_time) {
+      showToast('Fill in all required fields.', 'warning');
+      return;
+    }
+    if (start_time >= end_time) {
+      showToast('End time must be after start time.', 'error');
       return;
     }
     try {
-      if (subjectModal.mode === 'create') {
-        await api.post('/timetable/subjects/', subjectForm);
-        showNotification('Subject created successfully.');
-      } else {
-        await api.put(`/timetable/subjects/${subjectModal.data.id}/`, subjectForm);
-        showNotification('Subject updated successfully.');
-      }
-      setSubjectModal({ open: false, mode: 'create', data: null });
+      await api.post('/timetable/timetable', subjectForm);
+      showToast('Subject timing added to schedule.');
+      setSubjectModal({ open: false });
       fetchData();
     } catch (err) {
-      const detail = err.response?.data?.code || 'Failed to save subject.';
-      showNotification(detail, 'error');
+      const errorMsg = err.response?.data?.error || 'Failed to schedule. Check for timing overlaps.';
+      showToast(errorMsg, 'error');
     }
   };
 
-  // Lecture Handlers
-  const handleOpenLectureModal = (mode, data = null) => {
-    if (mode === 'edit' && data) {
-      setLectureForm({
-        subject: data.subject,
-        day: data.day,
-        start_time: data.start_time.substring(0, 5),
-        end_time: data.end_time.substring(0, 5),
-        lecture_type: data.lecture_type
-      });
-      setLectureModal({ open: true, mode: 'edit', data });
-    } else {
-      setLectureForm({
-        subject: subjects[0]?.id || '',
-        day: 'Monday',
-        start_time: '09:00',
-        end_time: '10:00',
-        lecture_type: 'Theory'
-      });
-      setLectureModal({ open: true, mode: 'create', data: null });
-    }
+  const handleOpenLectureModal = (lecture) => {
+    setLectureForm({
+      subject: lecture.subject,
+      day: lecture.day,
+      start_time: lecture.start_time.substring(0, 5),
+      end_time: lecture.end_time.substring(0, 5),
+      lecture_type: lecture.lecture_type,
+      building: lecture.building || '',
+      classroom: lecture.classroom || ''
+    });
+    setLectureModal({ open: true, data: lecture });
   };
 
   const handleSaveLecture = async () => {
-    if (!lectureForm.subject) {
-      showNotification('Please select a subject.', 'warning');
+    if (lectureForm.start_time >= lectureForm.end_time) {
+      showToast('End time must be after start time.', 'error');
       return;
     }
     try {
@@ -176,24 +183,13 @@ const Timetable = () => {
         start_time: `${lectureForm.start_time}:00`,
         end_time: `${lectureForm.end_time}:00`
       };
-      if (lectureModal.mode === 'create') {
-        await api.post('/timetable/slots/', payload);
-        showNotification('Lecture slot scheduled successfully.');
-      } else {
-        await api.put(`/timetable/slots/${lectureModal.data.id}/`, payload);
-        showNotification('Lecture slot updated successfully.');
-      }
-      setLectureModal({ open: false, mode: 'create', data: null });
+      await api.put(`/timetable/slots/${lectureModal.data.id}/`, payload);
+      showToast('Slot updated.');
+      setLectureModal({ open: false, data: null });
       fetchData();
     } catch (err) {
-      const errorMsg = err.response?.data?.non_field_errors?.[0] || 'Overlapping or invalid lecture times.';
-      showNotification(errorMsg, 'error');
+      showToast('Overlapping or invalid slot.', 'error');
     }
-  };
-
-  // Delete handlers
-  const handleConfirmDelete = (type, id) => {
-    setDeleteConfirm({ open: true, type, id });
   };
 
   const handleDelete = async () => {
@@ -201,72 +197,57 @@ const Timetable = () => {
     try {
       if (type === 'subject') {
         await api.delete(`/timetable/subjects/${id}/`);
-        showNotification('Subject deleted successfully.');
+        showToast('Subject deleted.');
       } else {
         await api.delete(`/timetable/slots/${id}/`);
-        showNotification('Lecture slot removed successfully.');
+        showToast('Slot deleted.');
       }
       setDeleteConfirm({ open: false, type: '', id: null });
       fetchData();
     } catch (err) {
-      showNotification(`Failed to delete ${type}.`, 'error');
+      showToast('Failed to delete.', 'error');
     }
   };
 
-  // Timetable OCR Import Handlers
   const handleFileChange = (e) => {
     setSelectedFile(e.target.files[0]);
   };
 
   const handleUploadFile = async () => {
     if (!selectedFile) {
-      showNotification('Please select a PDF or image file first.', 'warning');
+      showToast('Please select a file.', 'warning');
       return;
     }
-
     setUploading(true);
+    setLowConfidence(false);
     const formData = new FormData();
     formData.append('file', selectedFile);
-
     try {
-      const res = await api.post('/timetable/slots/import/', formData, {
+      const res = await api.post('/timetable/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      setDraftSlots(res.data.slots);
-      showNotification('OCR parsing complete. Please review the extracted slots below.');
+      setDraftSlots(res.data.slots || []);
+      setLowConfidence(res.data.low_confidence || false);
+      showToast('OCR extraction completed. Review draft slots below.');
     } catch (err) {
-      showNotification('Failed to parse timetable file.', 'error');
+      showToast('OCR Timetable reading failed.', 'error');
     } finally {
       setUploading(false);
     }
   };
 
-  const handleDraftFieldChange = (index, field, value) => {
-    const updated = [...draftSlots];
-    updated[index][field] = value;
-    setDraftSlots(updated);
-  };
-
-  const handleRemoveDraftSlot = (index) => {
-    const updated = draftSlots.filter((_, i) => i !== index);
-    setDraftSlots(updated);
-  };
-
   const handleSaveImportedTimetable = async () => {
-    if (draftSlots.length === 0) {
-      showNotification('No lecture slots to import.', 'warning');
-      return;
-    }
+    if (draftSlots.length === 0) return;
     setLoading(true);
     try {
-      await api.post('/timetable/slots/confirm-import/', { slots: draftSlots });
-      showNotification('Timetable imported and scheduled successfully!');
+      await api.post('/timetable/save', { slots: draftSlots });
+      showToast('Timetable imported successfully!');
       setDraftSlots([]);
       setSelectedFile(null);
-      setViewTab(0);
+      setActiveView(0);
       fetchData();
     } catch (err) {
-      showNotification('Failed to save imported timetable slots.', 'error');
+      showToast('Failed to save imported timetable.', 'error');
     } finally {
       setLoading(false);
     }
@@ -281,382 +262,293 @@ const Timetable = () => {
     return `${displayHr}:${minutes} ${ampm}`;
   };
 
+  if (loading) {
+    return (
+      <AppLayout>
+        <Box display="flex" justifyContent="center" py={12}>
+          <CircularProgress />
+        </Box>
+      </AppLayout>
+    );
+  }
+
+  const selectedLectures = timetable[selectedDay] || [];
+
   return (
     <AppLayout>
-      <Box display="flex" flexDirection="column" gap={3}>
-        {/* Header Options */}
-        <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}>
-          <Tabs value={viewTab} onChange={(e, val) => setViewTab(val)} textColor="primary" indicatorColor="primary">
-            <Tab label="List View" icon={<CalendarTodayIcon />} iconPosition="start" />
-            <Tab label="Grid View" icon={<ViewListIcon />} iconPosition="start" />
-            <Tab label="Import File" icon={<CloudUploadIcon />} iconPosition="start" />
+      <Box sx={{ maxWidth: 800, mx: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
+        
+        {/* Top View Selector */}
+        <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden', display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 0.5 }}>
+          <Tabs value={activeView} onChange={(e, val) => setActiveView(val)} textColor="primary" indicatorColor="primary">
+            <Tab label="Timeline View" icon={<CalendarTodayIcon />} iconPosition="start" sx={{ fontWeight: 'bold' }} />
+            <Tab label="Manage & Import" icon={<CloudUploadIcon />} iconPosition="start" sx={{ fontWeight: 'bold' }} />
           </Tabs>
 
-          <Box display="flex" gap={1.5}>
-            <Button variant="outlined" color="primary" startIcon={<MenuBookIcon />} onClick={() => handleOpenSubjectModal('create')}>
-              New Subject
-            </Button>
-            <Button variant="contained" color="primary" startIcon={<AddIcon />} onClick={() => handleOpenLectureModal('create')}>
-              New Lecture
-            </Button>
-          </Box>
-        </Box>
+          <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleOpenSubjectModal} sx={{ mr: 1, fontWeight: 'bold', borderRadius: 2 }}>
+            Add Class
+          </Button>
+        </Paper>
 
-        {loading ? (
-          <Box display="flex" justifyContent="center" py={10}>
-            <CircularProgress />
-          </Box>
-        ) : (
-          <>
-            {/* View Tab 0: Expandable List view per Day (Mobile-First friendly) */}
-            {viewTab === 0 && (
-              <Grid container spacing={3}>
-                <Grid item xs={12}>
-                  {DAYS.map((day) => {
-                    const dayLectures = timetable[day] || [];
-                    return (
-                      <Accordion key={day} defaultExpanded={day === new Date().toLocaleDateString('en-US', { weekday: 'long' })} sx={{ mb: 1.5, borderRadius: 2, '&::before': { display: 'none' } }}>
-                        <AccordionSummary expandMoreIcon={<ExpandMoreIcon />}>
-                          <Box display="flex" alignItems="center" gap={2}>
-                            <Typography variant="h6" fontWeight="bold">{day}</Typography>
-                            <Chip label={`${dayLectures.length} Lectures`} size="small" variant="outlined" />
-                          </Box>
-                        </AccordionSummary>
-                        <AccordionDetails>
-                          {dayLectures.length === 0 ? (
-                            <Typography color="text.secondary" variant="body2" sx={{ py: 2, textAlign: 'center' }}>
-                              No lectures scheduled for {day}.
-                            </Typography>
-                          ) : (
-                            <Grid container spacing={2}>
-                              {dayLectures.map((lecture) => (
-                                <Grid item xs={12} sm={6} md={4} key={lecture.id}>
-                                  <Card variant="outlined" sx={{ borderLeft: `6px solid ${lecture.subject_details?.color || '#3b82f6'}`, height: '100%' }}>
-                                    <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                                      <Box display="flex" justifyContent="space-between" alignItems="flex-start">
-                                        <Box>
-                                          <Typography variant="body1" fontWeight="bold">
-                                            {lecture.subject_details?.name}
-                                          </Typography>
-                                          <Typography variant="caption" color="text.secondary" display="block">
-                                            {lecture.subject_details?.code} • {lecture.subject_details?.faculty_name}
-                                          </Typography>
-                                          <Typography variant="body2" color="primary" fontWeight="medium" mt={1}>
-                                            {formatTime(lecture.start_time)} - {formatTime(lecture.end_time)}
-                                          </Typography>
-                                          <Chip label={lecture.lecture_type} size="small" sx={{ mt: 1, height: 20 }} color={lecture.lecture_type === 'Theory' ? 'primary' : 'secondary'} />
-                                        </Box>
-                                        <Box display="flex">
-                                          <IconButton size="small" onClick={() => handleOpenLectureModal('edit', lecture)}>
-                                            <EditIcon fontSize="small" />
-                                          </IconButton>
-                                          <IconButton size="small" color="error" onClick={() => handleConfirmDelete('lecture', lecture.id)}>
-                                            <DeleteIcon fontSize="small" />
-                                          </IconButton>
-                                        </Box>
-                                      </Box>
-                                    </CardContent>
-                                  </Card>
-                                </Grid>
-                              ))}
-                            </Grid>
-                          )}
-                        </AccordionDetails>
-                      </Accordion>
-                    );
-                  })}
-                </Grid>
-              </Grid>
-            )}
-
-            {/* View Tab 1: Tabular Matrix view */}
-            {viewTab === 1 && (
-              <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-                <Table>
-                  <TableHead sx={{ bgcolor: 'action.hover' }}>
-                    <TableRow>
-                      <TableCell sx={{ fontWeight: 'bold' }}>Day</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }}>Schedule Details (Start - End)</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {DAYS.map((day) => {
-                      const dayLectures = timetable[day] || [];
-                      return (
-                        <TableRow key={day} hover>
-                          <TableCell sx={{ fontWeight: 'bold', width: 120 }}>{day}</TableCell>
-                          <TableCell>
-                            {dayLectures.length === 0 ? (
-                              <Typography variant="body2" color="text.secondary">Free Day</Typography>
-                            ) : (
-                              <Box display="flex" gap={1.5} flexWrap="wrap">
-                                {dayLectures.map((lecture) => (
-                                  <Paper
-                                    key={lecture.id}
-                                    variant="outlined"
-                                    sx={{
-                                      p: 1.5,
-                                      minWidth: 180,
-                                      borderLeft: `4px solid ${lecture.subject_details?.color || '#3b82f6'}`,
-                                      bgcolor: 'background.paper',
-                                      position: 'relative'
-                                    }}
-                                  >
-                                    <Typography variant="body2" fontWeight="bold" noWrap sx={{ maxWidth: 160 }}>
-                                      {lecture.subject_details?.name}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary" display="block">
-                                      {formatTime(lecture.start_time)} - {formatTime(lecture.end_time)}
-                                    </Typography>
-                                    <Box display="flex" justifyContent="space-between" alignItems="center" mt={0.5}>
-                                      <Chip label={lecture.lecture_type} size="small" sx={{ height: 18, fontSize: '0.65rem' }} />
-                                      <Box>
-                                        <IconButton size="small" onClick={() => handleOpenLectureModal('edit', lecture)}>
-                                          <EditIcon sx={{ fontSize: 14 }} />
-                                        </IconButton>
-                                        <IconButton size="small" color="error" onClick={() => handleConfirmDelete('lecture', lecture.id)}>
-                                          <DeleteIcon sx={{ fontSize: 14 }} />
-                                        </IconButton>
-                                      </Box>
-                                    </Box>
-                                  </Paper>
-                                ))}
-                              </Box>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
-
-            {/* View Tab 2: OCR Timetable upload */}
-            {viewTab === 2 && (
-              <Box display="flex" flexDirection="column" gap={3}>
-                <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                  <CardContent sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                    <Typography variant="h6" fontWeight="bold">Upload timetable image or PDF to extract slots</Typography>
-                    <Typography variant="body2" color="text.secondary" align="center" sx={{ maxWidth: 500 }}>
-                      The AI Assistant will extract subject codes, names, faculty details, and time slots. You can review and edit them in the draft checklist before saving.
+        {/* View 0: Google Calendar-Style Day timeline */}
+        {activeView === 0 && (
+          <Box display="flex" flexDirection="column" gap={3}>
+            {/* Horizontal Day selection row */}
+            <Box sx={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: 1.5, overflowX: 'auto', pb: 1 }}>
+              {DAYS.map((day) => {
+                const count = timetable[day]?.length || 0;
+                const isSelected = selectedDay === day;
+                return (
+                  <Button
+                    key={day}
+                    onClick={() => setSelectedDay(day)}
+                    variant={isSelected ? 'contained' : 'outlined'}
+                    color={isSelected ? 'primary' : 'inherit'}
+                    sx={{
+                      flex: 1,
+                      minWidth: 90,
+                      borderRadius: 3,
+                      py: 1.5,
+                      textTransform: 'none',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 0.5,
+                      boxShadow: 'none'
+                    }}
+                  >
+                    <Typography variant="body2" fontWeight="bold">
+                      {day.substring(0, 3)}
                     </Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                      {count} {count === 1 ? 'class' : 'classes'}
+                    </Typography>
+                  </Button>
+                );
+              })}
+            </Box>
 
-                    <Box display="flex" alignItems="center" gap={2} flexWrap="wrap">
-                      <Button variant="outlined" component="label" startIcon={<CloudUploadIcon />}>
-                        Select Timetable File
-                        <input type="file" hidden accept="image/*,application/pdf" onChange={handleFileChange} />
-                      </Button>
-                      {selectedFile && (
-                        <Typography variant="body2" fontWeight="medium">
-                          {selectedFile.name}
-                        </Typography>
-                      )}
-                    </Box>
+            {/* Daily Schedule Vertical Timeline */}
+            <Typography variant="subtitle1" fontWeight="bold" color="text.secondary">
+              Schedule for {selectedDay}
+            </Typography>
 
-                    <Button variant="contained" color="primary" disabled={!selectedFile || uploading} onClick={handleUploadFile} sx={{ px: 4 }}>
-                      {uploading ? <CircularProgress size={24} color="inherit" /> : 'Run OCR Importer'}
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                {draftSlots.length > 0 && (
-                  <Card variant="outlined" sx={{ borderRadius: 2 }}>
-                    <CardContent>
-                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                        <Typography variant="h6" fontWeight="bold">Extracted Timetable Preview</Typography>
-                        <Button variant="contained" color="success" startIcon={<CheckIcon />} onClick={handleSaveImportedTimetable}>
-                          Save Draft Timetable
-                        </Button>
-                      </Box>
-                      <TableContainer component={Paper} variant="outlined">
-                        <Table size="small">
-                          <TableHead sx={{ bgcolor: 'action.hover' }}>
-                            <TableRow>
-                              <TableCell sx={{ fontWeight: 'bold' }}>Subject</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold' }}>Code</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold' }}>Faculty</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold' }}>Day</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold' }}>Start Time</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold' }}>End Time</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold' }}>Type</TableCell>
-                              <TableCell sx={{ fontWeight: 'bold', width: 60 }}></TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {draftSlots.map((slot, index) => (
-                              <TableRow key={index}>
-                                <TableCell>
-                                  <TextField size="small" fullWidth value={slot.subject_name} onChange={(e) => handleDraftFieldChange(index, 'subject_name', e.target.value)} />
-                                </TableCell>
-                                <TableCell>
-                                  <TextField size="small" sx={{ width: 80 }} value={slot.subject_code} onChange={(e) => handleDraftFieldChange(index, 'subject_code', e.target.value)} />
-                                </TableCell>
-                                <TableCell>
-                                  <TextField size="small" fullWidth value={slot.faculty_name} onChange={(e) => handleDraftFieldChange(index, 'faculty_name', e.target.value)} />
-                                </TableCell>
-                                <TableCell>
-                                  <TextField size="small" select sx={{ width: 110 }} value={slot.day} onChange={(e) => handleDraftFieldChange(index, 'day', e.target.value)}>
-                                    {DAYS.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
-                                  </TextField>
-                                </TableCell>
-                                <TableCell>
-                                  <TextField size="small" type="time" sx={{ width: 100 }} value={slot.start_time.substring(0, 5)} onChange={(e) => handleDraftFieldChange(index, 'start_time', e.target.value)} />
-                                </TableCell>
-                                <TableCell>
-                                  <TextField size="small" type="time" sx={{ width: 100 }} value={slot.end_time.substring(0, 5)} onChange={(e) => handleDraftFieldChange(index, 'end_time', e.target.value)} />
-                                </TableCell>
-                                <TableCell>
-                                  <TextField size="small" select sx={{ width: 110 }} value={slot.lecture_type} onChange={(e) => handleDraftFieldChange(index, 'lecture_type', e.target.value)}>
-                                    {LECTURE_TYPES.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-                                  </TextField>
-                                </TableCell>
-                                <TableCell>
-                                  <IconButton color="error" size="small" onClick={() => handleRemoveDraftSlot(index)}>
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    </CardContent>
-                  </Card>
-                )}
-              </Box>
-            )}
-          </>
-        )}
-
-        {/* Subjects list display */}
-        {!loading && subjects.length > 0 && viewTab !== 2 && (
-          <Box mt={3}>
-            <Typography variant="h6" fontWeight="bold" mb={2}>My Subjects</Typography>
-            <Grid container spacing={2}>
-              {subjects.map((sub) => (
-                <Grid item xs={12} sm={6} md={3} key={sub.id}>
-                  <Card variant="outlined" sx={{ borderTop: `4px solid ${sub.color}`, height: '100%' }}>
-                    <CardContent sx={{ p: 2 }}>
-                      <Box display="flex" justify="space-between" alignItems="flex-start">
-                        <Box>
-                          <Typography variant="subtitle1" fontWeight="bold" noWrap sx={{ maxWidth: 160 }}>
-                            {sub.name}
+            {selectedLectures.length === 0 ? (
+              <Paper variant="outlined" sx={{ p: 5, textAlign: 'center', borderRadius: 3 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                  No classes scheduled. Enjoy your day!
+                </Typography>
+              </Paper>
+            ) : (
+              <Box display="flex" flexDirection="column" gap={2}>
+                {[...selectedLectures].sort((a, b) => a.start_time.localeCompare(b.start_time)).map((lecture) => (
+                  <Card
+                    key={lecture.id}
+                    variant="outlined"
+                    sx={{
+                      borderRadius: 3,
+                      borderLeft: `6px solid ${lecture.subject_details?.color || '#3b82f6'}`
+                    }}
+                  >
+                    <CardContent sx={{ p: 2.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+                      <Box display="flex" gap={2.5}>
+                        <Box sx={{ minWidth: 70, pt: 0.5 }}>
+                          <Typography variant="body2" fontWeight="bold" color="primary.main">
+                            {formatTime(lecture.start_time.substring(0, 5))}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {sub.code} • {sub.faculty_name}
-                          </Typography>
-                          <Typography variant="body2" sx={{ mt: 1 }} fontWeight="medium">
-                            Credits: {sub.credits}
+                            to {formatTime(lecture.end_time.substring(0, 5))}
                           </Typography>
                         </Box>
+                        
+                        <Divider orientation="vertical" flexItem />
+
                         <Box>
-                          <IconButton size="small" onClick={() => handleOpenSubjectModal('edit', sub)}>
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                          <IconButton size="small" color="error" onClick={() => handleConfirmDelete('subject', sub.id)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
+                          <Typography variant="body1" fontWeight="bold">
+                            {lecture.subject_details?.name}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            {lecture.subject_details?.faculty_name} &bull; Room {lecture.classroom || 'TBD'} Block {lecture.building || 'TBD'}
+                          </Typography>
+                          <Chip
+                            label={lecture.lecture_type}
+                            size="small"
+                            variant="outlined"
+                            sx={{ mt: 1, height: 18, fontSize: '0.65rem', fontWeight: 'bold' }}
+                          />
                         </Box>
+                      </Box>
+
+                      <Box display="flex" gap={0.5}>
+                        <IconButton size="small" onClick={() => handleOpenLectureModal(lecture)}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton size="small" color="error" onClick={() => setDeleteConfirm({ open: true, type: 'lecture', id: lecture.id })}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
                       </Box>
                     </CardContent>
                   </Card>
-                </Grid>
-              ))}
-            </Grid>
+                ))}
+              </Box>
+            )}
           </Box>
         )}
+
+        {/* View 1: Manage subjects & upload OCR */}
+        {activeView === 1 && (
+          <Box display="flex" flexDirection="column" gap={4}>
+            
+            {/* Upload OCR Segment */}
+            <Paper variant="outlined" sx={{ p: 3, borderRadius: 3 }}>
+              <Typography variant="subtitle1" fontWeight="bold" mb={1}>OCR Timetable Upload</Typography>
+              <Typography variant="body2" color="text.secondary" mb={2}>
+                Upload a photo or PDF of your class timetable sheet, and our OCR pipeline will scan, parse, and schedule classes automatically.
+              </Typography>
+              
+              <Box display="flex" gap={2} alignItems="center" flexWrap="wrap">
+                <input type="file" accept="image/*,application/pdf" onChange={handleFileChange} id="ocr-file" style={{ display: 'none' }} />
+                <label htmlFor="ocr-file">
+                  <Button variant="outlined" component="span">Choose File</Button>
+                </label>
+                {selectedFile && <Typography variant="caption">{selectedFile.name}</Typography>}
+                
+                <Button variant="contained" onClick={handleUploadFile} disabled={uploading || !selectedFile} startIcon={uploading ? <CircularProgress size={16} /> : null}>
+                  {uploading ? 'Analyzing...' : 'Scan & Extract'}
+                </Button>
+              </Box>
+
+              {draftSlots.length > 0 && (
+                <Box mt={3} display="flex" flexDirection="column" gap={2}>
+                  <Divider />
+                  <Typography variant="subtitle2" fontWeight="bold">Extracted Draft Slots</Typography>
+                  {draftSlots.map((slot, idx) => (
+                    <Box key={idx} display="flex" gap={1.5} alignItems="center" flexWrap="wrap">
+                      <TextField size="small" placeholder="Subject Name" value={slot.subject_name} onChange={(e) => {
+                        const updated = [...draftSlots];
+                        updated[idx].subject_name = e.target.value;
+                        setDraftSlots(updated);
+                      }} />
+                      <TextField size="small" placeholder="Room" style={{ width: 90 }} value={slot.classroom} onChange={(e) => {
+                        const updated = [...draftSlots];
+                        updated[idx].classroom = e.target.value;
+                        setDraftSlots(updated);
+                      }} />
+                      <IconButton color="error" onClick={() => setDraftSlots(draftSlots.filter((_, i) => i !== idx))}>
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
+                  ))}
+                  <Button variant="contained" color="success" onClick={handleSaveImportedTimetable} sx={{ mt: 1, alignSelf: 'flex-start' }}>Save Imported Schedule</Button>
+                </Box>
+              )}
+            </Paper>
+
+            {/* Tracked Subjects CRUD list */}
+            <Box>
+              <Typography variant="subtitle1" fontWeight="bold" mb={2}>List of Subjects</Typography>
+              {subjects.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">No subjects found.</Typography>
+              ) : (
+                <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden' }}>
+                  <List disablePadding>
+                    {subjects.map((sub, index) => (
+                      <Box key={sub.id}>
+                        <ListItem sx={{ py: 2, px: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Box>
+                            <Typography variant="body2" fontWeight="bold">{sub.name}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Code: {sub.code} &bull; Faculty: {sub.faculty_name} &bull; Credits: {sub.credits}
+                            </Typography>
+                          </Box>
+                          <IconButton color="error" onClick={() => setDeleteConfirm({ open: true, type: 'subject', id: sub.id })}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </ListItem>
+                        {index < subjects.length - 1 && <Divider />}
+                      </Box>
+                    ))}
+                  </List>
+                </Paper>
+              )}
+            </Box>
+
+          </Box>
+        )}
+
       </Box>
 
-      {/* Subject Modal Dialog */}
-      <Dialog open={subjectModal.open} onClose={() => setSubjectModal({ open: false, mode: 'create', data: null })} fullWidth maxWidth="sm">
-        <DialogTitle>{subjectModal.mode === 'create' ? 'Add Subject' : 'Edit Subject'}</DialogTitle>
-        <DialogContent dividers>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <TextField label="Subject Name" fullWidth size="small" value={subjectForm.name} onChange={(e) => setSubjectForm({ ...subjectForm, name: e.target.value })} />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="Subject Code" fullWidth size="small" value={subjectForm.code} onChange={(e) => setSubjectForm({ ...subjectForm, code: e.target.value })} />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="Credits" type="number" fullWidth size="small" value={subjectForm.credits} onChange={(e) => setSubjectForm({ ...subjectForm, credits: parseInt(e.target.value) || 0 })} />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField label="Faculty Name" fullWidth size="small" value={subjectForm.faculty_name} onChange={(e) => setSubjectForm({ ...subjectForm, faculty_name: e.target.value })} />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="Semester" fullWidth size="small" value={subjectForm.semester} onChange={(e) => setSubjectForm({ ...subjectForm, semester: e.target.value })} />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="Division" fullWidth size="small" value={subjectForm.division} onChange={(e) => setSubjectForm({ ...subjectForm, division: e.target.value })} />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="Batch" placeholder="e.g. Batch 1 (Optional)" fullWidth size="small" value={subjectForm.batch} onChange={(e) => setSubjectForm({ ...subjectForm, batch: e.target.value })} />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="Color (HEX)" placeholder="#3b82f6" fullWidth size="small" value={subjectForm.color} onChange={(e) => setSubjectForm({ ...subjectForm, color: e.target.value })} />
-            </Grid>
-          </Grid>
+      {/* Save Timetable Slot Timing Modal */}
+      <Dialog open={subjectModal.open} onClose={() => setSubjectModal({ open: false })} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ fontWeight: 'bold' }}>Add Class timing</DialogTitle>
+        <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          <TextField label="Subject Name" size="small" fullWidth value={subjectForm.subject_name} onChange={(e) => setSubjectForm({ ...subjectForm, subject_name: e.target.value })} />
+          <TextField label="Subject Code" size="small" fullWidth value={subjectForm.subject_code} onChange={(e) => setSubjectForm({ ...subjectForm, subject_code: e.target.value })} />
+          <TextField label="Faculty Name" size="small" fullWidth value={subjectForm.faculty_name} onChange={(e) => setSubjectForm({ ...subjectForm, faculty_name: e.target.value })} />
+          <Box display="flex" gap={2}>
+            <TextField label="Block" size="small" fullWidth value={subjectForm.building} onChange={(e) => setSubjectForm({ ...subjectForm, building: e.target.value })} />
+            <TextField label="Room" size="small" fullWidth value={subjectForm.classroom} onChange={(e) => setSubjectForm({ ...subjectForm, classroom: e.target.value })} />
+          </Box>
+          <Box display="flex" gap={2}>
+            <TextField select label="Day" size="small" fullWidth value={subjectForm.day} onChange={(e) => setSubjectForm({ ...subjectForm, day: e.target.value })}>
+              {DAYS.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+            </TextField>
+            <TextField select label="Type" size="small" fullWidth value={subjectForm.lecture_type} onChange={(e) => setSubjectForm({ ...subjectForm, lecture_type: e.target.value })}>
+              {LECTURE_TYPES.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+            </TextField>
+          </Box>
+          <Box display="flex" gap={2}>
+            <TextField label="Start Time (HH:MM)" size="small" fullWidth type="time" slotProps={{ htmlInput: { step: 300 } }} value={subjectForm.start_time} onChange={(e) => setSubjectForm({ ...subjectForm, start_time: e.target.value })} />
+            <TextField label="End Time (HH:MM)" size="small" fullWidth type="time" slotProps={{ htmlInput: { step: 300 } }} value={subjectForm.end_time} onChange={(e) => setSubjectForm({ ...subjectForm, end_time: e.target.value })} />
+          </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSubjectModal({ open: false, mode: 'create', data: null })}>Cancel</Button>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setSubjectModal({ open: false })}>Cancel</Button>
           <Button variant="contained" onClick={handleSaveSubject}>Save</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Lecture Modal Dialog */}
-      <Dialog open={lectureModal.open} onClose={() => setLectureModal({ open: false, mode: 'create', data: null })} fullWidth maxWidth="sm">
-        <DialogTitle>{lectureModal.mode === 'create' ? 'Schedule Lecture' : 'Edit Lecture'}</DialogTitle>
-        <DialogContent dividers>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
-              <TextField label="Subject" select fullWidth size="small" value={lectureForm.subject} onChange={(e) => setLectureForm({ ...lectureForm, subject: e.target.value })}>
-                {subjects.map(s => <MenuItem key={s.id} value={s.id}>{s.name} ({s.code})</MenuItem>)}
-              </TextField>
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="Day of Week" select fullWidth size="small" value={lectureForm.day} onChange={(e) => setLectureForm({ ...lectureForm, day: e.target.value })}>
-                {DAYS.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
-              </TextField>
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="Lecture Type" select fullWidth size="small" value={lectureForm.lecture_type} onChange={(e) => setLectureForm({ ...lectureForm, lecture_type: e.target.value })}>
-                {LECTURE_TYPES.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-              </TextField>
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="Start Time" type="time" fullWidth size="small" value={lectureForm.start_time} onChange={(e) => setLectureForm({ ...lectureForm, start_time: e.target.value })} />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField label="End Time" type="time" fullWidth size="small" value={lectureForm.end_time} onChange={(e) => setLectureForm({ ...lectureForm, end_time: e.target.value })} />
-            </Grid>
-          </Grid>
+      {/* Edit Slot timing modal */}
+      <Dialog open={lectureModal.open} onClose={() => setLectureModal({ open: false, data: null })} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ fontWeight: 'bold' }}>Edit Lecture timing</DialogTitle>
+        <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          <TextField label="Start Time" size="small" type="time" fullWidth value={lectureForm.start_time} onChange={(e) => setLectureForm({ ...lectureForm, start_time: e.target.value })} />
+          <TextField label="End Time" size="small" type="time" fullWidth value={lectureForm.end_time} onChange={(e) => setLectureForm({ ...lectureForm, end_time: e.target.value })} />
+          <Box display="flex" gap={2}>
+            <TextField label="Block" size="small" fullWidth value={lectureForm.building} onChange={(e) => setLectureForm({ ...lectureForm, building: e.target.value })} />
+            <TextField label="Room" size="small" fullWidth value={lectureForm.classroom} onChange={(e) => setLectureForm({ ...lectureForm, classroom: e.target.value })} />
+          </Box>
+          <Box display="flex" gap={2}>
+            <TextField select label="Day" size="small" fullWidth value={lectureForm.day} onChange={(e) => setLectureForm({ ...lectureForm, day: e.target.value })}>
+              {DAYS.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+            </TextField>
+            <TextField select label="Lecture Type" size="small" fullWidth value={lectureForm.lecture_type} onChange={(e) => setLectureForm({ ...lectureForm, lecture_type: e.target.value })}>
+              {LECTURE_TYPES.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+            </TextField>
+          </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setLectureModal({ open: false, mode: 'create', data: null })}>Cancel</Button>
-          <Button variant="contained" onClick={handleSaveLecture}>Schedule</Button>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setLectureModal({ open: false, data: null })}>Cancel</Button>
+          <Button variant="contained" onClick={handleSaveLecture}>Save changes</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteConfirm.open} onClose={() => setDeleteConfirm({ open: false, type: '', id: null })}>
-        <DialogTitle>Confirm Deletion</DialogTitle>
+      {/* Confirm deletion modal dialog */}
+      <Dialog open={deleteConfirm.open} onClose={() => setDeleteConfirm({ open: false, type: '', id: null })} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ fontWeight: 'bold' }}>Delete Confirmation</DialogTitle>
         <DialogContent>
-          <Typography variant="body2">
-            Are you sure you want to delete this {deleteConfirm.type}? This action cannot be undone and will delete all associated logs.
+          <Typography variant="body2" color="text.secondary">
+            Are you sure you want to delete this {deleteConfirm.type === 'subject' ? 'subject (all associated timings will be deleted)' : 'lecture slot'}?
           </Typography>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setDeleteConfirm({ open: false, type: '', id: null })}>Cancel</Button>
           <Button variant="contained" color="error" onClick={handleDelete}>Delete</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Snackbar alerts */}
-      <Snackbar open={notification.open} autoHideDuration={6000} onClose={() => setNotification({ ...notification, open: false })}>
-        <Alert severity={notification.severity} onClose={() => setNotification({ ...notification, open: false })} variant="filled">
-          {notification.message}
+      <Snackbar open={toast.open} autoHideDuration={4000} onClose={() => setToast({ ...toast, open: false })} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
+        <Alert severity={toast.severity} variant="filled" onClose={() => setToast({ ...toast, open: false })}>
+          {toast.message}
         </Alert>
       </Snackbar>
     </AppLayout>

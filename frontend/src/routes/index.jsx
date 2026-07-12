@@ -1,18 +1,15 @@
 import React from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Splash from '../pages/Splash/Splash';
 import Login from '../pages/Login/Login';
-import Signup from '../pages/Signup/Signup';
 import Dashboard from '../pages/Dashboard/Dashboard';
 import Profile from '../pages/Profile/Profile';
 import Timetable from '../pages/Timetable/Timetable';
 import Attendance from '../pages/Attendance/Attendance';
-import AttendanceHistory from '../pages/Attendance/AttendanceHistory';
 import SubjectDetails from '../pages/SubjectDetails/SubjectDetails';
-import Reports from '../pages/Reports/Reports';
-import Chat from '../pages/Chat/Chat';
 import Settings from '../pages/Settings/Settings';
 import NotificationsCenter from '../pages/Notifications/Notifications';
+import ProfileCompletion from '../pages/ProfileCompletion/ProfileCompletion';
 import NotFound from '../pages/NotFound/NotFound';
 import ProtectedRoute from '../components/auth/ProtectedRoute';
 import PublicRoute from '../components/auth/PublicRoute';
@@ -32,12 +29,14 @@ const AppRoutes = () => {
           </PublicRoute>
         }
       />
+
+      {/* Profile Completion Flow */}
       <Route
-        path="/signup"
+        path="/profile-completion"
         element={
-          <PublicRoute>
-            <Signup />
-          </PublicRoute>
+          <ProtectedRoute allowIncomplete={true}>
+            <ProfileCompletion />
+          </ProtectedRoute>
         }
       />
 
@@ -67,26 +66,10 @@ const AppRoutes = () => {
         }
       />
       <Route
-        path="/history"
-        element={
-          <ProtectedRoute>
-            <AttendanceHistory />
-          </ProtectedRoute>
-        }
-      />
-      <Route
         path="/subjects/:id"
         element={
           <ProtectedRoute>
             <SubjectDetails />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/reports"
-        element={
-          <ProtectedRoute>
-            <Reports />
           </ProtectedRoute>
         }
       />
@@ -99,15 +82,15 @@ const AppRoutes = () => {
         }
       />
       <Route
-        path="/chat"
+        path="/settings"
         element={
           <ProtectedRoute>
-            <Chat />
+            <Settings />
           </ProtectedRoute>
         }
       />
       <Route
-        path="/settings"
+        path="/settings/ai"
         element={
           <ProtectedRoute>
             <Settings />
@@ -122,6 +105,11 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       />
+
+      {/* Redirection for legacy routes that were consolidated */}
+      <Route path="/history" element={<Navigate to="/attendance" replace />} />
+      <Route path="/reports" element={<Navigate to="/attendance" replace />} />
+      <Route path="/ai-assistant" element={<Navigate to="/dashboard" replace />} />
 
       {/* Custom 404 Page */}
       <Route path="*" element={<NotFound />} />

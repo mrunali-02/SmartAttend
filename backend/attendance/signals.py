@@ -7,6 +7,7 @@ def update_subject_stats(subject):
     subject.present_count = qs.filter(status='Present').count()
     subject.absent_count = qs.filter(status='Absent').count()
     subject.late_count = qs.filter(status='Late').count()
+    subject.cancelled_count = qs.filter(status='Cancelled').count()
     subject.total_lectures = subject.present_count + subject.absent_count + subject.late_count
     subject.save()
 

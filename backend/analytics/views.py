@@ -49,6 +49,7 @@ class AnalyticsDashboardView(APIView):
                 "present": sub.present_count,
                 "absent": sub.absent_count,
                 "late": sub.late_count,
+                "cancelled": getattr(sub, 'cancelled_count', 0),
                 "total": sub.total_lectures
             })
             

@@ -23,6 +23,7 @@ class Subject(models.Model):
     present_count = models.PositiveIntegerField(default=0)
     absent_count = models.PositiveIntegerField(default=0)
     late_count = models.PositiveIntegerField(default=0)
+    cancelled_count = models.PositiveIntegerField(default=0)
 
     class Meta:
         unique_together = ('user', 'code')
@@ -44,6 +45,7 @@ class LectureSlot(models.Model):
         ('Theory', 'Theory'),
         ('Practical', 'Practical'),
         ('Lab', 'Lab'),
+        ('Tutorial', 'Tutorial'),
     ]
 
     user = models.ForeignKey(
@@ -64,6 +66,8 @@ class LectureSlot(models.Model):
         choices=LECTURE_TYPE_CHOICES,
         default='Theory'
     )
+    building = models.CharField(max_length=100, blank=True, null=True)
+    classroom = models.CharField(max_length=100, blank=True, null=True)
 
     class Meta:
         ordering = ['day', 'start_time']

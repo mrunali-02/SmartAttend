@@ -1,5 +1,11 @@
 import re
+import os
+import json
+import logging
 from pypdf import PdfReader
+from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 def extract_text_from_pdf(pdf_file):
     try:
@@ -17,7 +23,7 @@ def parse_timetable_text(text):
     Scans the extracted text for subject names, days of week, and time slots.
     If it's unable to find structured data, returns standard realistic default slots.
     """
-    days_of_week = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+    days_of_week = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
     
     # Common subjects in college CS/IT/Engineering departments
     common_subjects = [
@@ -86,39 +92,6 @@ def parse_timetable_text(text):
                 "color": matched_subject["color"]
             })
             
-    # If no slots were detected (e.g., scanned image or empty PDF), return standard engineering slots
-    if not slots:
-        # Generate 4-5 slots per day for Monday through Friday
-        time_slots = [
-            ("09:00:00", "10:00:00", "Theory"),
-            ("10:15:00", "11:15:00", "Theory"),
-            ("11:30:00", "12:30:00", "Theory"),
-            ("14:00:00", "15:00:00", "Theory"),
-            ("15:15:00", "17:15:00", "Lab")
-        ]
-        
-        for d in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']:
-            for i, (start, end, ltype) in enumerate(time_slots):
-                # Cycle subjects based on day and slot index to create a realistic schedule
-                sub_idx = (days_of_week.index(d) + i) % len(common_subjects)
-                subject = common_subjects[sub_idx]
-                
-                # Check for lab type adjustment
-                slot_type = ltype
-                if i == 4:
-                    slot_type = "Lab" if "Lab" in subject["name"] else "Practical"
-                
-                slots.append({
-                    "subject_name": subject["name"],
-                    "subject_code": subject["code"],
-                    "faculty_name": subject["faculty"],
-                    "day": d,
-                    "start_time": start,
-                    "end_time": end,
-                    "lecture_type": slot_type,
-                    "color": subject["color"]
-                })
-                
     return slots
 
 def parse_time_string(time_str, ampm):
@@ -141,7 +114,118 @@ def parse_time_string(time_str, ampm):
     except Exception:
         return "09:00:00"
 
+def parse_timetable_with_gemini(uploaded_file):
+    api_key = os.environ.get('GEMINI_API_KEY')
+    if not api_key:
+        logger.info("GEMINI_API_KEY is not set. Skipping Gemini timetable extraction.")
+        return None
+        
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        name = uploaded_file.name.lower()
+        if name.endswith('.pdf'):
+            uploaded_file.seek(0)
+            file_data = uploaded_file.read()
+            contents = [
+                {
+                    "mime_type": "application/pdf",
+                    "data": file_data
+                },
+                GET_PROMPT()
+            ]
+        else:
+            uploaded_file.seek(0)
+            img = Image.open(uploaded_file)
+            contents = [img, GET_PROMPT()]
+            
+        response = model.generate_content(contents)
+        response_text = response.text.strip()
+        
+        # Strip markdown json blocks if present
+        if response_text.startswith("```"):
+            lines = response_text.split("\n")
+            if lines[0].startswith("```json") or lines[0].startswith("```"):
+                lines = lines[1:-1]
+            response_text = "\n".join(lines).strip()
+            
+        slots = json.loads(response_text)
+        
+        normalized_slots = []
+        for slot in slots:
+            start_time = slot.get('start_time', '09:00')
+            end_time = slot.get('end_time', '10:00')
+            if len(start_time.split(':')) == 2:
+                start_time += ':00'
+            if len(end_time.split(':')) == 2:
+                end_time += ':00'
+                
+            color = slot.get('color')
+            if not color:
+                colors = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#f97316"]
+                idx = abs(hash(slot.get('subject_name', ''))) % len(colors)
+                color = colors[idx]
+                
+            normalized_slots.append({
+                "subject_name": slot.get('subject_name', 'Unknown Subject'),
+                "subject_code": slot.get('subject_code', 'SUB101'),
+                "faculty_name": slot.get('faculty_name', 'TBD'),
+                "day": slot.get('day', 'Monday'),
+                "start_time": start_time,
+                "end_time": end_time,
+                "lecture_type": slot.get('lecture_type', 'Theory'),
+                "color": color,
+                "classroom": slot.get('classroom', slot.get('room_lab', ''))
+            })
+        return normalized_slots
+    except Exception as e:
+        logger.error(f"Error parsing timetable using Gemini API: {str(e)}")
+        return None
+
+def GET_PROMPT():
+    return """
+You are an expert data extraction assistant.
+Extract all lecture slots from this timetable image or document.
+Return the output ONLY as a JSON list of objects, with no markdown code blocks, no backticks, and no other text.
+Each object in the JSON list MUST have these fields:
+- subject_name: string (e.g. "Internet of Everything", "Infrastructure Security")
+- subject_code: string (e.g. "IOE", "IS/STQA")
+- faculty_name: string (e.g. "JRG", "VSK / ARR")
+- day: string (must be exactly one of: "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+- start_time: string (format "HH:MM", e.g., "13:45", "11:00")
+- end_time: string (format "HH:MM", e.g., "14:45", "13:00")
+- lecture_type: string (one of: "Theory", "Lab", "Practical", "Tutorial")
+- classroom: string (optional, Room or Lab number, e.g. "709", "Lab 901")
+
+Ensure times are in 24-hour format. For example:
+- 1:45 PM is 13:45
+- 12:00 PM is 12:00
+- 11:00 AM is 11:00
+- 5:45 PM is 17:45
+
+Example JSON output structure:
+[
+  {
+    "subject_name": "Internet of Everything",
+    "subject_code": "IOE",
+    "faculty_name": "JRG",
+    "day": "Monday",
+    "start_time": "13:45",
+    "end_time": "14:45",
+    "lecture_type": "Theory",
+    "classroom": "709"
+  }
+]
+"""
+
 def parse_timetable_file(uploaded_file):
+    # Try using Gemini if API key is set
+    gemini_slots = parse_timetable_with_gemini(uploaded_file)
+    if gemini_slots is not None:
+        return gemini_slots
+
     text = ""
     # Check file type
     if uploaded_file.name.endswith('.pdf'):

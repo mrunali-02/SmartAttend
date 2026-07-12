@@ -77,7 +77,7 @@ const SubjectDetails = () => {
   if (!subject) {
     return (
       <AppLayout>
-        <Box py={6} textAlign="center">
+        <Box sx={{ py: 6, textAlign: 'center' }}>
           <Typography variant="h6" color="error">Subject not found.</Typography>
           <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/dashboard')} sx={{ mt: 2 }}>
             Go Back
@@ -166,17 +166,17 @@ const SubjectDetails = () => {
                   {subject.name}
                 </Typography>
                 <Grid container spacing={1.5} sx={{ mt: 1 }}>
-                  <Grid item display="flex" alignItems="center" gap={0.5}>
+                  <Grid item sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <SubjectIcon fontSize="small" color="action" />
                     <Typography variant="body2" color="text.secondary">Code: {subject.code}</Typography>
                   </Grid>
                   <Grid item sx={{ mx: 1.5 }} color="divider">|</Grid>
-                  <Grid item display="flex" alignItems="center" gap={0.5}>
+                  <Grid item sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <PersonIcon fontSize="small" color="action" />
                     <Typography variant="body2" color="text.secondary">Faculty: {subject.faculty_name}</Typography>
                   </Grid>
                   <Grid item sx={{ mx: 1.5 }} color="divider">|</Grid>
-                  <Grid item display="flex" alignItems="center" gap={0.5}>
+                  <Grid item sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <GradeIcon fontSize="small" color="action" />
                     <Typography variant="body2" color="text.secondary">Credits: {subject.credits}</Typography>
                   </Grid>
@@ -229,23 +229,23 @@ const SubjectDetails = () => {
 
           {/* Card 2: Pie Ratio & Smart Bunk Calculator */}
           <Grid item xs={12} md={7}>
-            <Card sx={{ height: '100%', borderRadius: 3, display: 'flex', flexDirection: 'column', justify: 'space-between' }} variant="outlined">
+            <Card sx={{ height: '100%', borderRadius: 3, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }} variant="outlined">
               <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 2 }}>
                 <Box>
                   <Typography variant="subtitle2" fontWeight="bold" color="text.secondary" gutterBottom>
                     Attendance Distribution
                   </Typography>
                   <Grid container spacing={2} alignItems="center">
-                    <Grid item xs={6} display="flex" flexDirection="column" gap={1.5}>
-                      <Box display="flex" justify="space-between" p={1} component={Paper} variant="outlined">
+                    <Grid item xs={6} sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                      <Box display="flex" justifyContent="space-between" p={1} component={Paper} variant="outlined">
                         <Typography variant="caption" color="text.secondary">Present</Typography>
                         <Typography variant="caption" fontWeight="bold" color="success.main">{subject.present_count}</Typography>
                       </Box>
-                      <Box display="flex" justify="space-between" p={1} component={Paper} variant="outlined">
+                      <Box display="flex" justifyContent="space-between" p={1} component={Paper} variant="outlined">
                         <Typography variant="caption" color="text.secondary">Late</Typography>
                         <Typography variant="caption" fontWeight="bold" color="warning.main">{subject.late_count}</Typography>
                       </Box>
-                      <Box display="flex" justify="space-between" p={1} component={Paper} variant="outlined">
+                      <Box display="flex" justifyContent="space-between" p={1} component={Paper} variant="outlined">
                         <Typography variant="caption" color="text.secondary">Absent</Typography>
                         <Typography variant="caption" fontWeight="bold" color="error.main">{subject.absent_count}</Typography>
                       </Box>
@@ -253,7 +253,7 @@ const SubjectDetails = () => {
                     
                     <Grid item xs={6} sx={{ height: 130 }}>
                       {pieData.length === 0 ? (
-                        <Box display="flex" justify="center" align="center" height="100%">
+                        <Box display="flex" justifyContent="center" alignItems="center" height="100%">
                           <Typography variant="caption" color="text.secondary">No ratio details</Typography>
                         </Box>
                       ) : (

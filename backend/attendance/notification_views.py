@@ -6,11 +6,13 @@ from rest_framework.response import Response
 
 from .models import Notification, Attendance
 from timetable.models import LectureSlot, Subject
-from ai.models import AIMemory
+from ai.models import AIPreferences
 from analytics.calculations import calculate_smart_bunk, calculate_streaks
+from .serializers import NotificationSerializer
 
 class NotificationViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = NotificationSerializer
 
     def get_queryset(self):
         # Generate reactive notifications before listing
@@ -25,9 +27,12 @@ class NotificationViewSet(viewsets.ModelViewSet):
         - Attendance streak warnings (absent streaks > 2)
         """
         today = timezone.now().date()
-        memory, _ = AIMemory.objects.get_or_create(user=user)
+        memory, _ = AIPreferences.objects.get_or_create(user=user)
         target_goal = memory.preferred_goal
-        offset_mins = memory.reminder_time_mins
+        try:
+            offset_mins = int(memory.preferred_reminder_time.split()[0])
+        except (ValueError, IndexError):
+            offset_mins = 15
 
         # 1. Check Low Attendance Warning
         subjects = Subject.objects.filter(user=user)
